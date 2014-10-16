@@ -288,6 +288,31 @@ static void cirrus_crtc_prepare(struct drm_crtc *crtc)
 {
 }
 
+static int cirrus_crtc_page_flip(struct drm_crtc *crtc,
+				 struct drm_framebuffer *fb,
+				 struct drm_pending_vblank_event *event,
+				 uint32_t page_flip_flags,
+				 struct drm_modeset_acquire_ctx *ctx)
+{
+	struct drm_device *dev = crtc->dev;
+	unsigned long flags;
+
+	struct drm_framebuffer *old_fb = crtc->primary->fb;
+
+	crtc->primary->fb = fb;
+
+	cirrus_crtc_do_set_base(crtc, old_fb, 0, 0, true);
+
+	spin_lock_irqsave(&dev->event_lock, flags);
+	if (event)
+		drm_crtc_send_vblank_event(crtc, event);
+	spin_unlock_irqrestore(&dev->event_lock, flags);
+
+	drm_handle_vblank(dev, 0);
+
+	return 0;
+}
+
 static void cirrus_crtc_load_lut(struct drm_crtc *crtc)
 {
 	struct drm_device *dev = crtc->dev;
@@ -345,6 +370,7 @@ static void cirrus_crtc_destroy(struct drm_crtc *crtc)
 
 /* These provide the minimum set of functions required to handle a CRTC */
 static const struct drm_crtc_funcs cirrus_crtc_funcs = {
+	.page_flip = cirrus_crtc_page_flip,
 	.gamma_set = cirrus_crtc_gamma_set,
 	.set_config = drm_crtc_helper_set_config,
 	.destroy = cirrus_crtc_destroy,
