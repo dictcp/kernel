@@ -40,6 +40,10 @@ struct vgem_file {
 	struct mutex fence_mutex;
 };
 
+#define DRM_VGEM_MODE_MAP_DUMB 0x00
+#define DRM_IOCTL_VGEM_MODE_MAP_DUMB DRM_IOWR(DRM_COMMAND_BASE + \
+		DRM_VGEM_MODE_MAP_DUMB, struct drm_mode_map_dumb)
+
 #define to_vgem_bo(x) container_of(x, struct drm_vgem_gem_object, base)
 struct drm_vgem_gem_object {
 	struct drm_gem_object base;
