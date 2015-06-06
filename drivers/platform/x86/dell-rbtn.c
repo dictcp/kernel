@@ -296,6 +296,12 @@ static struct acpi_driver rbtn_driver = {
 	.name = "dell-rbtn",
 	.ids = rbtn_ids,
 	.drv.pm = &rbtn_pm_ops,
+	{ "", 0 },
+};
+
+static struct acpi_driver rbtn_driver = {
+	.name = "dell-rbtn",
+	.ids = rbtn_ids,
 	.ops = {
 		.add = rbtn_add,
 		.remove = rbtn_remove,
