@@ -207,7 +207,14 @@ static int __init debug_kernel(char *str)
 
 static int __init quiet_kernel(char *str)
 {
-	console_loglevel = CONSOLE_LOGLEVEL_QUIET;
+	/*
+	 * Throttle the loglevel to CONSOLE_LOGLEVEL_QUIET.
+	 * We always want the logs to be quiet, so we don't print out a bunch of
+	 * scary log messages to users (since these log messages appears on the
+	 * initial bootup screen).
+	 */
+	if (console_loglevel > CONSOLE_LOGLEVEL_QUIET)
+		console_loglevel = CONSOLE_LOGLEVEL_QUIET;
 	return 0;
 }
 
