@@ -649,11 +649,9 @@ static int i915_drm_suspend_late(struct drm_device *drm_dev, bool hibernation)
 	if (!(hibernation &&
 	      drm_dev->pdev->subsystem_vendor == PCI_VENDOR_ID_LENOVO &&
 	      INTEL_INFO(dev_priv)->gen == 4) &&
-	      /* Always leave Lenovo SL410 and SL510. */
-	      !drm_dev->pdev->subsystem_device == 0x213a)
-	{
+	    /* Always leave Lenovo SL410 and SL510. */
+	    !drm_dev->pdev->subsystem_device == 0x213a)
 		pci_set_power_state(drm_dev->pdev, PCI_D3hot);
-	}
 
 	return 0;
 }
