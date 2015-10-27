@@ -63,6 +63,8 @@ static struct drm_driver driver;
 #define IVB_CURSOR_OFFSETS \
 	.cursor_offsets = { CURSOR_A_OFFSET, IVB_CURSOR_B_OFFSET, IVB_CURSOR_C_OFFSET }
 
+extern void send_morse(const char *pattern);
+
 static const struct intel_device_info intel_i830_info = {
 	.gen = 2, .is_mobile = 1, .cursor_needs_physical = 1, .num_pipes = 2,
 	.has_overlay = 1, .overlay_needs_physical = 1,
@@ -681,7 +683,10 @@ static int i915_drm_suspend_late(struct drm_device *drm_dev, bool hibernation)
 	    !(drm_dev->pdev->subsystem_vendor == PCI_VENDOR_ID_LENOVO &&
 	      /* Skip the Lenovo Thinkpad SL410 and SL510. */
 	      drm_dev->pdev->subsystem_device == 0x213a))
+	{
+		send_morse("--");
 		pci_set_power_state(drm_dev->pdev, PCI_D3hot);
+	}
 
 	return 0;
 }
