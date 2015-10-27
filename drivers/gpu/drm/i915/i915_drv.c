@@ -672,8 +672,14 @@ static int i915_drm_suspend_late(struct drm_device *drm_dev, bool hibernation)
 	 * Lenovo Thinkpad X301, X61s, X60, T60, X41
 	 * Fujitsu FSC S7110
 	 * Acer Aspire 1830T
+	 *
+	 * Lenovo Thinkpad SL410 and SL510 hang on suspend with
+	 * the power changed to D3.
 	 */
-	if (!(hibernation && INTEL_INFO(dev_priv)->gen < 6))
+	if (!(hibernation && INTEL_INFO(dev_priv)->gen < 6) &&
+	    !(drm_dev->pdev->subsystem_vendor == PCI_VENDOR_ID_LENOVO &&
+	      /* Skip the Lenovo Thinkpad SL410 and SL510. */
+	      drm_dev->pdev->subsystem_device == 0x213a))
 		pci_set_power_state(drm_dev->pdev, PCI_D3hot);
 
 	return 0;
