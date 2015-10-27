@@ -675,6 +675,7 @@ static int i915_drm_suspend_late(struct drm_device *drm_dev, bool hibernation)
 	 *
 	 * The Lenovo Thinkpad SL410 and SL510 do not suspend with this change.
 	 */
+	if (!i915.disable_d3hot_workaround)
 	if (!(hibernation && INTEL_INFO(dev_priv)->gen < 6) &&
 		!(drm_dev->pdev->subsystem_vendor == PCI_VENDOR_ID_LENOVO &&
 		/* Skip the Lenovo SL410 and SL510. */
