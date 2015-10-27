@@ -642,11 +642,18 @@ static int i915_drm_suspend_late(struct drm_device *drm_dev, bool hibernation)
 	 * leave the device in D0 on those platforms and hope the BIOS will
 	 * power down the device properly. Platforms where this was seen:
 	 * Lenovo Thinkpad X301, X61s
+	 *
+	 * The Lenovo Thinkpad SL410 and SL510 would hang on suspend
+	 * if it is changed to PCI_D3hot.
 	 */
 	if (!(hibernation &&
 	      drm_dev->pdev->subsystem_vendor == PCI_VENDOR_ID_LENOVO &&
-	      INTEL_INFO(dev_priv)->gen == 4))
+	      INTEL_INFO(dev_priv)->gen == 4) &&
+	      /* Always leave Lenovo SL410 and SL510. */
+	      !drm_dev->pdev->subsystem_device == 0x213a)
+	{
 		pci_set_power_state(drm_dev->pdev, PCI_D3hot);
+	}
 
 	return 0;
 }
