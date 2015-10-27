@@ -676,6 +676,7 @@ static int i915_drm_suspend_late(struct drm_device *drm_dev, bool hibernation)
 	 * Lenovo Thinkpad SL410 and SL510 hang on suspend with
 	 * the power changed to D3.
 	 */
+	if (!i915.disable_d3hot_workaround)
 	if (!(hibernation && INTEL_INFO(dev_priv)->gen < 6) &&
 	    !(drm_dev->pdev->subsystem_vendor == PCI_VENDOR_ID_LENOVO &&
 	      /* Skip the Lenovo Thinkpad SL410 and SL510. */
