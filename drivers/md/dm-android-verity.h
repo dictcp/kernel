@@ -26,23 +26,6 @@
 #define VERITY_METADATA_SIZE (8 * DATA_BLOCK_SIZE)
 #define VERITY_TABLE_ARGS 10
 #define VERITY_COMMANDLINE_PARAM_LENGTH 20
-#define BUILD_VARIANT 20
-
-/*
- * <subject>:<sha1-id> is the format for the identifier.
- * subject can either be the Common Name(CN) + Organization Name(O) or
- * just the CN if the it is prefixed with O
- * From https://tools.ietf.org/html/rfc5280#appendix-A
- * ub-organization-name-length INTEGER ::= 64
- * ub-common-name-length INTEGER ::= 64
- *
- * http://lxr.free-electrons.com/source/crypto/asymmetric_keys/x509_cert_parser.c?v=3.9#L278
- * ctx->o_size + 2 + ctx->cn_size + 1
- * + 41 characters for ":" and sha1 id
- * 64 + 2 + 64 + 1 + 1 + 40 (172)
- * setting VERITY_DEFAULT_KEY_ID_LENGTH to 200 characters.
- */
-#define VERITY_DEFAULT_KEY_ID_LENGTH 200
 
 #define FEC_MAGIC 0xFECFECFE
 #define FEC_BLOCK_SIZE (4 * 1024)
@@ -61,16 +44,15 @@
 #define VERITY_DEBUG 0
 
 #define DM_MSG_PREFIX                   "android-verity"
-
-#define DM_LINEAR_ARGS 2
-#define DM_LINEAR_TARGET_OFFSET "0"
-
 /*
  * There can be two formats.
  * if fec is present
  * <data_blocks> <verity_tree> <verity_metdata_32K><fec_data><fec_data_4K>
  * if fec is not present
  * <data_blocks> <verity_tree> <verity_metdata_32K>
+ */
+/* TODO: rearrange structure to reduce memory holes
+ * depends on userspace change.
  */
 struct fec_header {
 	__le32 magic;
@@ -80,7 +62,7 @@ struct fec_header {
 	__le32 fec_size;
 	__le64 inp_size;
 	u8 hash[SHA256_DIGEST_SIZE];
-} __attribute__((packed));
+};
 
 struct android_metadata_header {
 	__le32 magic_number;
@@ -107,17 +89,4 @@ struct bio_read {
 	int number_of_pages;
 };
 
-extern struct target_type linear_target;
-
-void dm_linear_dtr(struct dm_target *ti);
-int dm_linear_map(struct dm_target *ti, struct bio *bio);
-void dm_linear_status(struct dm_target *ti, status_type_t type,
-			unsigned status_flags, char *result, unsigned maxlen);
-int dm_linear_prepare_ioctl(struct dm_target *ti,
-                struct block_device **bdev, fmode_t *mode);
-int dm_linear_iterate_devices(struct dm_target *ti,
-			iterate_devices_callout_fn fn, void *data);
-int dm_linear_ctr(struct dm_target *ti, unsigned int argc, char **argv);
-long dm_linear_direct_access(struct dm_target *ti, pgoff_t pgoff,
-		long nr_pages, void **kaddr, pfn_t *pfn);
 #endif /* DM_ANDROID_VERITY_H */
