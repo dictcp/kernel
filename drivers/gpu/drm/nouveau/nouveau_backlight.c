@@ -92,6 +92,54 @@ nv40_backlight_init(struct drm_connector *connector)
 	return 0;
 }
 
+/* Minimum visible brightness value for the iMac9,1 */
+#define IMAC91_MIN_BRIGHTNESS 0x92
+#define IMAC91_MAX_BRIGHTNESS (0x401 - IMAC91_MIN_BRIGHTNESS)
+
+static int
+nv50_imac91_get_intensity(struct backlight_device *bd)
+{
+	struct nouveau_encoder *nv_encoder = bl_get_data(bd);
+	struct nouveau_drm *drm = nouveau_drm(nv_encoder->base.base.dev);
+	struct nvif_object *device = &drm->device.object;
+	int or = nv_encoder->or;
+	u32 val;
+
+	val  = nvif_rd32(device, NV50_PDISP_SOR_PWM_CTL(or));
+	val &= NV50_PDISP_SOR_PWM_CTL_VAL;
+
+	/* All values below the base translate to 0. */
+	if (val < IMAC91_MIN_BRIGHTNESS)
+		return 0;
+	return val - IMAC91_MIN_BRIGHTNESS;
+}
+
+static int
+nv50_imac91_set_intensity(struct backlight_device *bd)
+{
+	struct nouveau_encoder *nv_encoder = bl_get_data(bd);
+	struct nouveau_drm *drm = nouveau_drm(nv_encoder->base.base.dev);
+	struct nvif_object *device = &drm->device.object;
+	int or = nv_encoder->or;
+	u32 val = bd->props.brightness + IMAC91_MIN_BRIGHTNESS;
+
+	/*
+	 * Force the PWM div to 0x1.
+	 * This makes the div consistent on the iMac9,1 as it might
+	 * change to 0x84 in the card POST.
+	 */
+	nvif_wr32(device, NV50_PDISP_SOR_PWM_DIV(or), 0x1);
+	nvif_wr32(device, NV50_PDISP_SOR_PWM_CTL(or),
+			NV50_PDISP_SOR_PWM_CTL_NEW | val);
+	return 0;
+}
+
+static const struct backlight_ops nv50_imac91_bl_ops = {
+	.options = BL_CORE_SUSPENDRESUME,
+	.get_brightness = nv50_imac91_get_intensity,
+	.update_status = nv50_imac91_set_intensity,
+};
+
 static int
 nv50_get_intensity(struct backlight_device *bd)
 {
@@ -182,6 +230,7 @@ nv50_backlight_init(struct drm_connector *connector)
 	struct backlight_properties props;
 	struct backlight_device *bd;
 	const struct backlight_ops *ops;
+	int max_brightness = 100;
 
 	nv_encoder = find_encoder(connector, DCB_OUTPUT_LVDS);
 	if (!nv_encoder) {
@@ -195,14 +244,24 @@ nv50_backlight_init(struct drm_connector *connector)
 
 	if (drm->device.info.chipset <= 0xa0 ||
 	    drm->device.info.chipset == 0xaa ||
-	    drm->device.info.chipset == 0xac)
-		ops = &nv50_bl_ops;
-	else
+	    drm->device.info.chipset == 0xac) {
+		/* iMac9,1 subvendor (0x0867, 0x106b, 0x00ad) */
+		if (nv_match_device(nv_encoder->base.base.dev,
+				    0x0867, 0x106b, 0x00ad)) {
+			ops = &nv50_imac91_bl_ops;
+			max_brightness = IMAC91_MAX_BRIGHTNESS;
+		}
+		else {
+			ops = &nv50_bl_ops;
+		}
+	}
+	else {
 		ops = &nva3_bl_ops;
+	}
 
 	memset(&props, 0, sizeof(struct backlight_properties));
 	props.type = BACKLIGHT_RAW;
-	props.max_brightness = 100;
+	props.max_brightness = max_brightness;
 	bd = backlight_device_register("nv_backlight", connector->kdev,
 				       nv_encoder, ops, &props);
 	if (IS_ERR(bd))
