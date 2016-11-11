@@ -117,6 +117,10 @@ nv50_set_intensity(struct backlight_device *bd)
 	u32 div = 1025;
 	u32 val = (bd->props.brightness * div) / 100;
 
+	/* iMac 9,1 subvendor match to force backlight div consistency. */
+	if (nv_match_device(nv_encoder->base.base.dev, 0x0867, 0x106b, 0x00ad))
+		nvif_wr32(device, NV50_PDISP_SOR_PWM_DIV(or), 0x1);
+
 	nvif_wr32(device, NV50_PDISP_SOR_PWM_CTL(or),
 			NV50_PDISP_SOR_PWM_CTL_NEW | val);
 	return 0;
