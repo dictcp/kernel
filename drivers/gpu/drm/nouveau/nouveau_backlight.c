@@ -92,10 +92,22 @@ nv40_backlight_init(struct drm_connector *connector)
 	return 0;
 }
 
-/* Minimum visible brightness value for the iMac9,1 */
+/* Minimum visible on device brightness value for the iMac9,1 */
 #define IMAC91_MIN_BRIGHTNESS 0x92
-#define IMAC91_MAX_BRIGHTNESS (0x401 - IMAC91_MIN_BRIGHTNESS)
+#define IMAC91_MAX_BRIGHTNESS 0x401
+#define IMAC91_USER_MAX_BRIGHTNESS \
+	(IMAC91_MAX_BRIGHTNESS - IMAC91_MIN_BRIGHTNESS)
 
+/*
+ * Get the user facing brightness value for the iMac9,1 device.
+ * The effective range of values on the card is
+ * [IMAC91_MIN_BRIGHTNESS, IMAC91_MAX_BRIGHTNESS].
+ * The driver exposes only a maxiumum so adjust the
+ * returned range to start at zero.
+ *
+ * Force the DIV on the device to match the expected value
+ * to keep brightness consistent.
+ */
 static int
 nv50_imac91_get_intensity(struct backlight_device *bd)
 {
@@ -114,6 +126,14 @@ nv50_imac91_get_intensity(struct backlight_device *bd)
 	return val - IMAC91_MIN_BRIGHTNESS;
 }
 
+/*
+ * Set the brightness value for the iMac9,1 nouveau subdevice.
+ * Adjust the user facing brightness by the minimum brightness
+ * for the device.
+ *
+ * Forces the PMW_DIV on the device to 1 to keep it consistent
+ * as it might change to 0x84 in the card init scripts.
+ */
 static int
 nv50_imac91_set_intensity(struct backlight_device *bd)
 {
@@ -123,11 +143,6 @@ nv50_imac91_set_intensity(struct backlight_device *bd)
 	int or = nv_encoder->or;
 	u32 val = bd->props.brightness + IMAC91_MIN_BRIGHTNESS;
 
-	/*
-	 * Force the PWM div to 0x1.
-	 * This makes the div consistent on the iMac9,1 as it might
-	 * change to 0x84 in the card POST.
-	 */
 	nvif_wr32(device, NV50_PDISP_SOR_PWM_DIV(or), 0x1);
 	nvif_wr32(device, NV50_PDISP_SOR_PWM_CTL(or),
 			NV50_PDISP_SOR_PWM_CTL_NEW | val);
@@ -249,7 +264,7 @@ nv50_backlight_init(struct drm_connector *connector)
 		if (nv_match_device(nv_encoder->base.base.dev,
 				    0x0867, 0x106b, 0x00ad)) {
 			ops = &nv50_imac91_bl_ops;
-			max_brightness = IMAC91_MAX_BRIGHTNESS;
+			max_brightness = IMAC91_USER_MAX_BRIGHTNESS;
 		}
 		else {
 			ops = &nv50_bl_ops;
