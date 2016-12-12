@@ -1503,7 +1503,7 @@ static struct ctl_table vm_table[] = {
 	{
 		.procname	= "mmap_noexec_taint",
 		.data		= &sysctl_mmap_noexec_taint,
-		.maxlen		= sizeof(unsigned long),
+		.maxlen		= sizeof(sysctl_mmap_noexec_taint),
 		.mode		= 0644,
 		.proc_handler	= proc_dointvec_minmax,
 		.extra1		= &zero,
@@ -1579,6 +1579,13 @@ static struct ctl_table vm_table[] = {
 		.maxlen		= sizeof(sysctl_admin_reserve_kbytes),
 		.mode		= 0644,
 		.proc_handler	= proc_doulongvec_minmax,
+	},
+	{
+		.procname	= "min_filelist_kbytes",
+		.data		= &min_filelist_kbytes,
+		.maxlen		= sizeof(min_filelist_kbytes),
+		.mode		= 0644,
+		.proc_handler	= proc_dointvec,
 	},
 	{ }
 };
