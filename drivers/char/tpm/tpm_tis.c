@@ -640,6 +640,27 @@ static void tpm_tis_remove(struct tpm_chip *chip)
 	release_locality(chip, chip->vendor.locality, 1);
 }
 
+/* Return zero if the chip is *not* in our whitelist, non-zero
+   otherwise
+
+   did_vid: TPM vendor and device ID field. The two low bytes are
+            vendor ID, the two high bytes are device ID.
+*/
+static int tpm_in_neverware_whitelist(const u32 did_vid)
+{
+	const u16 vendor_id = did_vid;  /* truncate */
+	const u16 device_id = did_vid >> 16;
+
+	/* Only one whitelisted chip for now: the Atmel TPM used in
+	   some Dell Latitudes */
+	if (vendor_id == TPM_VID_ATMEL && device_id == 0x3204) {
+		return 1;
+	}
+
+	/* Chip is not in the whitelist */
+	return 0;
+}
+
 static int tpm_tis_init(struct device *dev, struct tpm_info *tpm_info,
 			acpi_handle acpi_dev_handle)
 {
@@ -689,9 +710,16 @@ static int tpm_tis_init(struct device *dev, struct tpm_info *tpm_info,
 	vendor = ioread32(chip->vendor.iobase + TPM_DID_VID(0));
 	chip->vendor.manufacturer_id = vendor;
 
-	dev_info(dev, "%s TPM (device-id 0x%X, rev-id %d)\n",
+	dev_info(dev, "%s TPM (vendor-id 0x%X, device-id 0x%X, rev-id %d)\n",
 		 (chip->flags & TPM_CHIP_FLAG_TPM2) ? "2.0" : "1.2",
+		 (u16)vendor,
 		 vendor >> 16, ioread8(chip->vendor.iobase + TPM_RID(0)));
+
+	if (!tpm_in_neverware_whitelist(vendor)) {
+		dev_info(dev, "neverware: TPM device not in whitelist");
+		rc = -ENODEV;
+		goto out_err;
+	}
 
 	if (!itpm) {
 		probe = probe_itpm(chip);
