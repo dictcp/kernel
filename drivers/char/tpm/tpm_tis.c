@@ -640,8 +640,7 @@ static void tpm_tis_remove(struct tpm_chip *chip)
 	release_locality(chip, chip->vendor.locality, 1);
 }
 
-/* Return zero if the chip is *not* in our whitelist, non-zero
- * otherwise
+/* Return non-zero if the chip is in our whitelist, zero otherwise
  *
  * did_vid: TPM vendor and device ID field. The two low bytes are
  *          vendor ID, the two high bytes are device ID.
