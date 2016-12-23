@@ -710,7 +710,7 @@ static int tpm_tis_init(struct device *dev, struct tpm_info *tpm_info,
 
 	dev_info(dev, "%s TPM (vendor-id 0x%X, device-id 0x%X, rev-id %d)\n",
 		 (chip->flags & TPM_CHIP_FLAG_TPM2) ? "2.0" : "1.2",
-		 (u16)vendor,
+		 (u16)vendor,  /* truncate */
 		 vendor >> 16, ioread8(chip->vendor.iobase + TPM_RID(0)));
 
 	if (!tpm_in_neverware_whitelist(vendor)) {
