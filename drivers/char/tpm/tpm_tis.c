@@ -653,9 +653,8 @@ static int tpm_in_neverware_whitelist(const u32 did_vid)
 
 	/* Only one whitelisted chip for now: the Atmel TPM used in
 	 * some Dell Latitudes */
-	if (vendor_id == TPM_VID_ATMEL && device_id == 0x3204) {
+	if (vendor_id == TPM_VID_ATMEL && device_id == 0x3204)
 		return 1;
-	}
 
 	/* Chip is not in the whitelist */
 	return 0;
