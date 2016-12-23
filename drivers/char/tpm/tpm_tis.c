@@ -641,18 +641,18 @@ static void tpm_tis_remove(struct tpm_chip *chip)
 }
 
 /* Return zero if the chip is *not* in our whitelist, non-zero
-   otherwise
-
-   did_vid: TPM vendor and device ID field. The two low bytes are
-            vendor ID, the two high bytes are device ID.
-*/
+ * otherwise
+ *
+ * did_vid: TPM vendor and device ID field. The two low bytes are
+ *          vendor ID, the two high bytes are device ID.
+ */
 static int tpm_in_neverware_whitelist(const u32 did_vid)
 {
 	const u16 vendor_id = did_vid;  /* truncate */
 	const u16 device_id = did_vid >> 16;
 
 	/* Only one whitelisted chip for now: the Atmel TPM used in
-	   some Dell Latitudes */
+	 * some Dell Latitudes */
 	if (vendor_id == TPM_VID_ATMEL && device_id == 0x3204) {
 		return 1;
 	}
