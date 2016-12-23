@@ -640,6 +640,19 @@ static void tpm_tis_remove(struct tpm_chip *chip)
 	release_locality(chip, chip->vendor.locality, 1);
 }
 
+/*
+ * Neverware: allow bypassing the TPM whitelist at boot for
+ * dev/testing purposes.
+ *
+ * The device is still checked against the whitelist so that the
+ * kernel log shows whether the device is whitelisted or not, but the
+ * TPM module is allowed to continue initializing.
+ */
+static bool tpm_bypass_whitelist = false;
+module_param(tpm_bypass_whitelist, bool, S_IRUGO);
+MODULE_PARM_DESC(tpm_bypass_whitelist,
+		 "Neverware: set to true to allow non-whitelisted TPM chips");
+
 /* Return non-zero if the chip is in our whitelist, zero otherwise
  *
  * did_vid: TPM vendor and device ID field. The two low bytes are
@@ -715,8 +728,12 @@ static int tpm_tis_init(struct device *dev, struct tpm_info *tpm_info,
 
 	if (!tpm_in_neverware_whitelist(vendor)) {
 		dev_info(dev, "neverware: TPM device not in whitelist");
-		rc = -ENODEV;
-		goto out_err;
+		if (tpm_bypass_whitelist) {
+			dev_info(dev, "neverware: bypassing whitelist");
+		} else {
+			rc = -ENODEV;
+			goto out_err;
+		}
 	}
 
 	if (!itpm) {
