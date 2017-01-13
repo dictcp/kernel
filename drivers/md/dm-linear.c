@@ -199,10 +199,11 @@ static struct target_type linear_target = {
 	.ctr    = dm_linear_ctr,
 	.dtr    = dm_linear_dtr,
 	.map    = dm_linear_map,
+	.end_io = dm_linear_end_io,
 	.status = dm_linear_status,
 	.prepare_ioctl = dm_linear_prepare_ioctl,
 	.iterate_devices = dm_linear_iterate_devices,
-	.direct_access = linear_dax_direct_access,
+	.direct_access = dm_linear_direct_access,
 	.dax_copy_from_iter = linear_dax_copy_from_iter,
 };
 
