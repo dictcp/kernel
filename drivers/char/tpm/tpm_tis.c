@@ -663,9 +663,13 @@ static int tpm_in_neverware_whitelist(const u32 did_vid)
 	const u16 vendor_id = did_vid;  /* truncate */
 	const u16 device_id = did_vid >> 16;
 
-	/* Only one whitelisted chip for now: the Atmel TPM used in
-	 * some Dell Latitudes */
+	/* Atmel TPM in the Dell Latitude E5420, E5430, and E6230
+	 * [OVER-4103] */
 	if (vendor_id == TPM_VID_ATMEL && device_id == 0x3204)
+		return 1;
+
+	/* Infineon TPM in the HP EliteBook 8470p [OVER-4290] */
+	if (vendor_id == TPM_VID_INFINEON && device_id == 0xB)
 		return 1;
 
 	/* Chip is not in the whitelist */
