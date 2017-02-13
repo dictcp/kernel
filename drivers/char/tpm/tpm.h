@@ -160,6 +160,7 @@ struct tpm_vendor_specific {
 #define TPM_VPRIV(c)     ((c)->vendor.priv)
 
 #define TPM_VID_ATMEL    0x1114
+#define TPM_VID_INFINEON 0x15D1
 #define TPM_VID_INTEL    0x8086
 #define TPM_VID_WINBOND  0x1050
 #define TPM_VID_STM      0x104A
