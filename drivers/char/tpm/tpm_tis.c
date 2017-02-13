@@ -668,7 +668,8 @@ static int tpm_in_neverware_whitelist(const u32 did_vid)
 	if (vendor_id == TPM_VID_ATMEL && device_id == 0x3204)
 		return 1;
 
-	/* Infineon TPM in the HP EliteBook 8470p [OVER-4290] */
+	/* Infineon TPM in the HP Compaq 6005 Pro and HP EliteBook 8470p
+	 * [OVER-4290] */
 	if (vendor_id == TPM_VID_INFINEON && device_id == 0xB)
 		return 1;
 
