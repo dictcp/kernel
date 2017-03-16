@@ -305,8 +305,8 @@ static void b43_gphy_gain_lt_init(struct b43_wldev *dev)
 	}
 }
 
-static void b43_set_all_gains(struct b43_wldev *dev,
-			      s16 first, s16 second, s16 third)
+static void __attribute__((optimize("no-tree-vrp")))
+b43_set_all_gains(struct b43_wldev *dev, s16 first, s16 second, s16 third)
 {
 	struct b43_phy *phy = &dev->phy;
 	u16 i;
