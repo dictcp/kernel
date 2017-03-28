@@ -5034,8 +5034,15 @@ static void alc_fixup_disable_aamix(struct hda_codec *codec,
 static void alc_fixup_tpt440_dock(struct hda_codec *codec,
 				  const struct hda_fixup *fix, int action)
 {
+	/* On the T440p pin 0x15 default is 0x0321101f.
+	 * Pin 0x16 is the dock headphone.
+	 * To make sure the headphone comes before the
+	 * doc headphone set the DA of 2.
+	 * This makes it such the proper headphone playback switch
+	 * is associated with the headphone pins.
+	 */
 	static const struct hda_pintbl pincfgs[] = {
-		{ 0x16, 0x21211010 }, /* dock headphone */
+		{ 0x16, 0x2121102f }, /* dock headphone */
 		{ 0x19, 0x21a11010 }, /* dock mic */
 		{ }
 	};
