@@ -5030,14 +5030,41 @@ static void alc_fixup_disable_aamix(struct hda_codec *codec,
 	}
 }
 
+static void alc_fixup_tpt440_apply_pincfgs(struct hda_codec *codec,
+					   const struct hda_fixup *fix,
+					   int action,
+					   const struct hda_pintbl *pincfgs)
+{
+	struct alc_spec *spec = codec->spec;
+
+	if (action == HDA_FIXUP_ACT_PRE_PROBE) {
+		spec->shutup = alc_no_shutup; /* reduce click noise */
+		spec->reboot_notify = alc_d3_at_reboot; /* reduce noise */
+		spec->parse_flags = HDA_PINCFG_NO_HP_FIXUP;
+		codec->power_save_node = 0; /* avoid click noises */
+		snd_hda_apply_pincfgs(codec, pincfgs);
+	}
+}
+
 /* fixup for Thinkpad docks: add dock pins, avoid HP parser fixup */
 static void alc_fixup_tpt440_dock(struct hda_codec *codec,
+				  const struct hda_fixup *fix, int action)
+{
+	static const struct hda_pintbl pincfgs[] = {
+		{ 0x16, 0x21211010 }, /* dock headphone */
+		{ 0x19, 0x21a11010 }, /* dock mic */
+		{ }
+	};
+	alc_fixup_tpt440_apply_pincfgs(codec, fix, action, pincfgs);
+}
+
+static void alc_fixup_tpt440_dock_builtin_first(struct hda_codec *codec,
 				  const struct hda_fixup *fix, int action)
 {
 	/* On the T440p pin 0x15 default is 0x0321101f.
 	 * Pin 0x16 is the dock headphone.
 	 * To make sure the headphone comes before the
-	 * doc headphone set the DA of 2.
+	 * dock headphone set the DA of 2.
 	 * This makes it such the proper headphone playback switch
 	 * is associated with the headphone pins.
 	 */
@@ -5046,14 +5073,8 @@ static void alc_fixup_tpt440_dock(struct hda_codec *codec,
 		{ 0x19, 0x21a11010 }, /* dock mic */
 		{ }
 	};
-	struct alc_spec *spec = codec->spec;
 
-	if (action == HDA_FIXUP_ACT_PRE_PROBE) {
-		spec->reboot_notify = alc_d3_at_reboot; /* reduce noise */
-		spec->parse_flags = HDA_PINCFG_NO_HP_FIXUP;
-		codec->power_save_node = 0; /* avoid click noises */
-		snd_hda_apply_pincfgs(codec, pincfgs);
-	}
+	alc_fixup_tpt440_apply_pincfgs(codec, fix, action, pincfgs);
 }
 
 static void alc_fixup_tpt470_dock(struct hda_codec *codec,
@@ -5611,6 +5632,7 @@ enum {
 	ALC255_FIXUP_HEADSET_MODE_NO_HP_MIC,
 	ALC293_FIXUP_DELL1_MIC_NO_PRESENCE,
 	ALC292_FIXUP_TPT440_DOCK,
+	ALC292_FIXUP_TPT440_DOCK_BUILTIN_FIRST,
 	ALC292_FIXUP_TPT440,
 	ALC283_FIXUP_HEADSET_MIC,
 	ALC255_FIXUP_DELL_WMI_MIC_MUTE_LED,
@@ -6162,6 +6184,12 @@ static const struct hda_fixup alc269_fixups[] = {
 	[ALC292_FIXUP_TPT440_DOCK] = {
 		.type = HDA_FIXUP_FUNC,
 		.v.func = alc_fixup_tpt440_dock,
+		.chained = true,
+		.chain_id = ALC269_FIXUP_LIMIT_INT_MIC_BOOST
+	},
+	[ALC292_FIXUP_TPT440_DOCK_BUILTIN_FIRST] = {
+		.type = HDA_FIXUP_FUNC,
+		.v.func = alc_fixup_tpt440_dock_builtin_first,
 		.chained = true,
 		.chain_id = ALC269_FIXUP_LIMIT_INT_MIC_BOOST
 	},
@@ -6810,7 +6838,7 @@ static const struct snd_pci_quirk alc269_fixup_tbl[] = {
 	SND_PCI_QUIRK(0x17aa, 0x2203, "Thinkpad X230 Tablet", ALC269_FIXUP_LENOVO_DOCK),
 	SND_PCI_QUIRK(0x17aa, 0x2208, "Thinkpad T431s", ALC269_FIXUP_LENOVO_DOCK),
 	SND_PCI_QUIRK(0x17aa, 0x220c, "Thinkpad T440s", ALC292_FIXUP_TPT440),
-	SND_PCI_QUIRK(0x17aa, 0x220e, "Thinkpad T440p", ALC292_FIXUP_TPT440_DOCK),
+	SND_PCI_QUIRK(0x17aa, 0x220e, "Thinkpad T440p", ALC292_FIXUP_TPT440_DOCK_BUILTIN_FIRST),
 	SND_PCI_QUIRK(0x17aa, 0x2210, "Thinkpad T540p", ALC292_FIXUP_TPT440_DOCK),
 	SND_PCI_QUIRK(0x17aa, 0x2211, "Thinkpad W541", ALC292_FIXUP_TPT440_DOCK),
 	SND_PCI_QUIRK(0x17aa, 0x2212, "Thinkpad T440", ALC292_FIXUP_TPT440_DOCK),
@@ -6842,7 +6870,7 @@ static const struct snd_pci_quirk alc269_fixup_tbl[] = {
 	SND_PCI_QUIRK(0x17aa, 0x3978, "IdeaPad Y410P", ALC269_FIXUP_NO_SHUTUP),
 	SND_PCI_QUIRK(0x17aa, 0x5013, "Thinkpad", ALC269_FIXUP_LIMIT_INT_MIC_BOOST),
 	SND_PCI_QUIRK(0x17aa, 0x501a, "Thinkpad", ALC283_FIXUP_INT_MIC),
-	SND_PCI_QUIRK(0x17aa, 0x501e, "Thinkpad L440", ALC292_FIXUP_TPT440_DOCK),
+	SND_PCI_QUIRK(0x17aa, 0x501e, "Thinkpad L440", ALC292_FIXUP_TPT440_DOCK_BUILTIN_FIRST),
 	SND_PCI_QUIRK(0x17aa, 0x5026, "Thinkpad", ALC269_FIXUP_LIMIT_INT_MIC_BOOST),
 	SND_PCI_QUIRK(0x17aa, 0x5034, "Thinkpad T450", ALC292_FIXUP_TPT440_DOCK),
 	SND_PCI_QUIRK(0x17aa, 0x5036, "Thinkpad T450s", ALC292_FIXUP_TPT440_DOCK),
