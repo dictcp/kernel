@@ -4401,7 +4401,7 @@ static void alc_fixup_disable_aamix(struct hda_codec *codec,
 	}
 }
 
-static void alc_fixup_tpt440_headphone_noise(struct hda_codec *codec,
+static void alc_fixup_tpt440_apply_pincfgs(struct hda_codec *codec,
 										const struct hda_fixup *fix,
 										int action,
 										const struct hda_pintbl *pincfgs)
@@ -4426,7 +4426,7 @@ static void alc_fixup_tpt440_dock(struct hda_codec *codec,
 		{ 0x19, 0x21a11010 }, /* dock mic */
 		{ }
 	};
-	alc_fixup_tpt440_headphone_noise(codec, fix, action, pincfgs);
+	alc_fixup_tpt440_apply_pincfgs(codec, fix, action, pincfgs);
 }
 
 static void alc_fixup_tpt440_dock_builtin_first(struct hda_codec *codec,
@@ -4444,7 +4444,7 @@ static void alc_fixup_tpt440_dock_builtin_first(struct hda_codec *codec,
 		{ 0x19, 0x21a11010 }, /* dock mic */
 		{ }
 	};
-	alc_fixup_tpt440_headphone_noise(codec, fix, action, pincfgs);
+	alc_fixup_tpt440_apply_pincfgs(codec, fix, action, pincfgs);
 }
 
 static void alc_shutup_dell_xps13(struct hda_codec *codec)
