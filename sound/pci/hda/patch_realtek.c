@@ -4402,9 +4402,9 @@ static void alc_fixup_disable_aamix(struct hda_codec *codec,
 }
 
 static void alc_fixup_tpt440_apply_pincfgs(struct hda_codec *codec,
-										const struct hda_fixup *fix,
-										int action,
-										const struct hda_pintbl *pincfgs)
+					   const struct hda_fixup *fix,
+					   int action,
+					   const struct hda_pintbl *pincfgs)
 {
 		struct alc_spec *spec = codec->spec;
 
