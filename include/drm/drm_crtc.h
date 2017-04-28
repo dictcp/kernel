@@ -992,7 +992,7 @@ struct drm_mode_set {
 struct drm_mode_config_funcs {
 	struct drm_framebuffer *(*fb_create)(struct drm_device *dev,
 					     struct drm_file *file_priv,
-					     struct drm_mode_fb_cmd2 *mode_cmd);
+					     const struct drm_mode_fb_cmd2 *mode_cmd);
 	void (*output_poll_changed)(struct drm_device *dev);
 
 	int (*atomic_check)(struct drm_device *dev,
@@ -1233,10 +1233,11 @@ void drm_bridge_mode_set(struct drm_bridge *bridge,
 void drm_bridge_pre_enable(struct drm_bridge *bridge);
 void drm_bridge_enable(struct drm_bridge *bridge);
 
-extern int drm_encoder_init(struct drm_device *dev,
-			    struct drm_encoder *encoder,
-			    const struct drm_encoder_funcs *funcs,
-			    int encoder_type);
+extern __printf(5, 6)
+int drm_encoder_init(struct drm_device *dev,
+		     struct drm_encoder *encoder,
+		     const struct drm_encoder_funcs *funcs,
+		     int encoder_type, const char *name, ...);
 
 /**
  * drm_encoder_crtc_ok - can a given crtc drive a given encoder?
