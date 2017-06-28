@@ -15,6 +15,8 @@
  */
 
 #include <linux/types.h>
+#include <linux/dmi.h>
+#include <linux/string.h>
 #include <linux/atomic.h>
 #include <linux/kernel.h>
 #include <linux/kthread.h>
@@ -597,6 +599,19 @@ static const struct sdiod_drive_str sdiod_drvstr_tab2_3v3[] = {
 	{4,  0x1}
 };
 
+// Neverware NVRAM file quirks
+static const struct dmi_system_id asus_t100ta_quirk[] = {
+	{
+		.ident = "ASUS Transformer T100TA",
+		.matches = {
+			DMI_MATCH(DMI_BOARD_VENDOR, "ASUSTeK COMPUTER INC."),
+			DMI_MATCH(DMI_PRODUCT_NAME, "T100TA"),
+		},
+	},
+	{ }
+};
+
+#define ASUS_T100TA_BCM43241B4_NVRAM_NAME	"brcm/brcmfmac43241b4-sdio-asus-t100ta.txt"
 #define BCM43143_FIRMWARE_NAME		"brcm/brcmfmac43143-sdio.bin"
 #define BCM43143_NVRAM_NAME		"brcm/brcmfmac43143-sdio.txt"
 #define BCM43241B0_FIRMWARE_NAME	"brcm/brcmfmac43241b0-sdio.bin"
@@ -626,6 +641,7 @@ static const struct sdiod_drive_str sdiod_drvstr_tab2_3v3[] = {
 #define BCM4354_FIRMWARE_NAME		"brcm/brcmfmac4354-sdio.bin"
 #define BCM4354_NVRAM_NAME		"brcm/brcmfmac4354-sdio.txt"
 
+
 MODULE_FIRMWARE(BCM43143_FIRMWARE_NAME);
 MODULE_FIRMWARE(BCM43143_NVRAM_NAME);
 MODULE_FIRMWARE(BCM43241B0_FIRMWARE_NAME);
@@ -654,6 +670,7 @@ MODULE_FIRMWARE(BCM43455_FIRMWARE_NAME);
 MODULE_FIRMWARE(BCM43455_NVRAM_NAME);
 MODULE_FIRMWARE(BCM4354_FIRMWARE_NAME);
 MODULE_FIRMWARE(BCM4354_NVRAM_NAME);
+MODULE_FIRMWARE(ASUS_T100TA_BCM43241B4_NVRAM_NAME);
 
 struct brcmf_firmware_names {
 	u32 chipid;
@@ -721,8 +738,19 @@ static int brcmf_sdio_get_fwnames(struct brcmf_chip *ci,
 	}
 	strlcat(sdiodev->fw_name, brcmf_fwname_data[i].bin,
 		sizeof(sdiodev->fw_name));
-	strlcat(sdiodev->nvram_name, brcmf_fwname_data[i].nv,
-		sizeof(sdiodev->nvram_name));
+	// OVER-4963
+	// If we are on an ASUS T100TA *and* using a bcm43241b4 device,
+	// we want to use an alternate, pre-existing nvram file.
+	if (dmi_check_system(asus_t100ta_quirk) &&
+	    strcmp(sdiodev->fw_name, BCM43241B4_FIRMWARE_NAME) == 0) {
+			pr_info("Using alternate NVRAM for ASUS T100TA: %s\n",
+				ASUS_T100TA_BCM43241B4_NVRAM_NAME);
+			strlcat(sdiodev->nvram_name, ASUS_T100TA_BCM43241B4_NVRAM_NAME,
+				sizeof(sdiodev->nvram_name));
+	} else {
+		strlcat(sdiodev->nvram_name, brcmf_fwname_data[i].nv,
+			sizeof(sdiodev->nvram_name));
+	}
 
 	return 0;
 }
