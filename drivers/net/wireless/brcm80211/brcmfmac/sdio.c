@@ -599,7 +599,7 @@ static const struct sdiod_drive_str sdiod_drvstr_tab2_3v3[] = {
 	{4,  0x1}
 };
 
-// Neverware NVRAM file quirks
+/* Neverware NVRAM file quirks */
 static const struct dmi_system_id asus_t100ta_quirk[] = {
 	{
 		.ident = "ASUS Transformer T100TA",
@@ -738,9 +738,10 @@ static int brcmf_sdio_get_fwnames(struct brcmf_chip *ci,
 	}
 	strlcat(sdiodev->fw_name, brcmf_fwname_data[i].bin,
 		sizeof(sdiodev->fw_name));
-	// OVER-4963
-	// If we are on an ASUS T100TA *and* using a bcm43241b4 device,
-	// we want to use an alternate, pre-existing nvram file.
+	/* OVER-4963
+	 * If we are on an ASUS T100TA *and* using a bcm43241b4 device,
+	 * we want to use an alternate, pre-existing nvram file.
+	 */
 	if (dmi_check_system(asus_t100ta_quirk) &&
 	    strcmp(sdiodev->fw_name, BCM43241B4_FIRMWARE_NAME) == 0) {
 			pr_info("Using alternate NVRAM for ASUS T100TA: %s\n",
