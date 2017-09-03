@@ -778,7 +778,13 @@ static void hidinput_configure_usage(struct hid_input *hidinput, struct hid_fiel
 			switch (field->physical & 0xff) {
 			case 0x21: map_key(BTN_TOOL_MOUSE); break;
 			case 0x22: map_key(BTN_TOOL_FINGER); break;
-			default: map_key(BTN_TOOL_PEN); break;
+			default: 
+				if (device->quirks & HID_QUIRK_NO_PEN) {
+					goto ignore;
+				} else {
+					map_key(BTN_TOOL_PEN);
+				}
+				break;
 			}
 			break;
 
