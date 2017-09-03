@@ -54,6 +54,33 @@ static const struct hid_blacklist {
 	{ USB_VENDOR_ID_PANTHERLORD, USB_DEVICE_ID_PANTHERLORD_TWIN_USB_JOYSTICK, HID_QUIRK_MULTI_INPUT | HID_QUIRK_SKIP_OUTPUT_REPORTS },
 	{ USB_VENDOR_ID_TOUCHPACK, USB_DEVICE_ID_TOUCHPACK_RTS, HID_QUIRK_MULTI_INPUT },
 
+	/* Neverware: the Ideacom 6680's first interface contains two
+	 * input reports. The first is the touchscreen input, the second
+	 * is an emulated mouse pointer. The multi-input quirk forces the
+	 * emulated mouse pointer into a separate input device so that its
+	 * properties don't override the real touchscreen input.
+	 *
+	 * The no-pen quirk is used to prevent a non-existent pen device
+	 * from being registered. The device report contains this:
+	 *
+	 *	 INPUT(10)[INPUT]
+	 *	   Field(0)
+	 *		 Physical(Digitizers.Stylus)
+	 *		 Application(Digitizers.TouchScreen)
+	 *		 Usage(2)
+	 *		   Digitizers.TipSwitch
+	 *		   Digitizers.InRange
+	 *
+	 * The "InRange" usage for a stylus is interpreted as being a pen
+	 * rather than a finger. (In fact the device sends identical touch
+	 * and pen events for every touch.) The presence of a pen tool
+	 * makes the browser assume the touchscreen is a graphics tablet,
+	 * which has a whole different set of behaviors.
+	 *
+	 * [OVER-5329]
+	 */
+	{ USB_VENDOR_ID_IDEACOM, USB_DEVICE_ID_IDEACOM_IDC6680, HID_QUIRK_MULTI_INPUT | HID_QUIRK_NO_PEN},
+
 	{ USB_VENDOR_ID_AIREN, USB_DEVICE_ID_AIREN_SLIMPLUS, HID_QUIRK_NOGET },
 	{ USB_VENDOR_ID_AKAI, USB_DEVICE_ID_AKAI_MPKMINI2, HID_QUIRK_NO_INIT_REPORTS },
 	{ USB_VENDOR_ID_AKAI_09E8, USB_DEVICE_ID_AKAI_09E8_MIDIMIX, HID_QUIRK_NO_INIT_REPORTS },
