@@ -819,7 +819,6 @@ static struct dmi_system_id __initdata nettop_no_lvds_dmi_table[] = {
 			DMI_MATCH(DMI_SYS_VENDOR, "Acer"),
 			DMI_MATCH(DMI_PRODUCT_NAME,
 				"Veriton N281G"),
-			DMI_MATCH(DMI_BOARD_NAME, "TPDS03"),
 		},
 	},
 	/**
@@ -834,7 +833,6 @@ static struct dmi_system_id __initdata nettop_no_lvds_dmi_table[] = {
 			DMI_MATCH(DMI_SYS_VENDOR, "Acer"),
 			DMI_MATCH(DMI_PRODUCT_NAME,
 				"Veriton N280G"),
-			DMI_MATCH(DMI_BOARD_NAME, "TPDS03"),
 		},
 	},
 	{ }
