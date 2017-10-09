@@ -5382,7 +5382,7 @@ static void valleyview_init_gt_powersave(struct drm_device *dev)
 		dev_priv->rps.min_freq_softlimit = dev_priv->rps.min_freq;
 
 	if (num_online_cpus() == 4) {
-		DRM_INFO("Use max GFX freq on quad-core Baytrail due to crbug.com/719040\n");
+		DRM_INFO("Use max GFX freq on quad-core Baytrail due to crbug.com/719040 OVER-5465\n");
 		dev_priv->rps.idle_freq = dev_priv->rps.max_freq_softlimit;
 		dev_priv->rps.min_freq_softlimit = dev_priv->rps.idle_freq;
 	}
