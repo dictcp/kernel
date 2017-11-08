@@ -11,6 +11,9 @@
 
 #include <linux/security.h>
 #include <linux/export.h>
+#include <linux/sysrq.h>
+#include <linux/efi.h>
+#include <asm/setup.h>
 
 static __ro_after_init bool kernel_locked_down;
 
