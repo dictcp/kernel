@@ -79,7 +79,6 @@ void evdi_driver_unload(struct drm_device *dev)
 
 	EVDI_CHECKPT();
 
-	drm_vblank_cleanup(dev);
 	drm_kms_helper_poll_fini(dev);
 	evdi_fbdev_unplug(dev);
 	if (evdi->cursor)
