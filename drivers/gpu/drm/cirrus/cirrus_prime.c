@@ -7,7 +7,7 @@
  *
  */
 
-#include <ttm/ttm_page_alloc.h>
+#include <drm/ttm/ttm_page_alloc.h>
 #include <drm/drmP.h>
 #include "cirrus_drv.h"
 
