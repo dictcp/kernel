@@ -250,6 +250,8 @@ unref:
 	return ret;
 }
 
+int drm_mode_mmap_dumb_ioctl(struct drm_device *dev,
+			     void *data, struct drm_file *file_priv);
 static struct drm_ioctl_desc vgem_ioctls[] = {
 	DRM_IOCTL_DEF_DRV(VGEM_FENCE_ATTACH, vgem_fence_attach_ioctl, DRM_AUTH|DRM_RENDER_ALLOW),
 	DRM_IOCTL_DEF_DRV(VGEM_FENCE_SIGNAL, vgem_fence_signal_ioctl, DRM_AUTH|DRM_RENDER_ALLOW),
