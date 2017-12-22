@@ -12,6 +12,7 @@
 #include <linux/console.h>
 #include <drm/drmP.h>
 #include <drm/drm_crtc_helper.h>
+#include <drm/drm_ioctl.h>
 
 #include "cirrus_drv.h"
 
@@ -119,6 +120,21 @@ static int cirrus_pm_resume(struct device *dev)
 }
 #endif
 
+static int cirrus_mode_mmap_ioctl(struct drm_device *dev, void *data,
+				  struct drm_file *file_priv)
+{
+	struct drm_mode_map_dumb *args = data;
+
+	return dev->driver->dumb_map_offset(file_priv, dev,
+					    args->handle,
+					    &args->offset);
+}
+
+static struct drm_ioctl_desc cirrus_ioctls[] = {
+	DRM_IOCTL_DEF_DRV(CIRRUS_MAP, cirrus_mode_mmap_ioctl,
+			  DRM_CONTROL_ALLOW|DRM_UNLOCKED|DRM_RENDER_ALLOW),
+};
+
 static const struct file_operations cirrus_driver_fops = {
 	.owner = THIS_MODULE,
 	.open = drm_open,
@@ -130,7 +146,7 @@ static const struct file_operations cirrus_driver_fops = {
 	.compat_ioctl = drm_compat_ioctl,
 };
 static struct drm_driver driver = {
-	.driver_features = DRIVER_MODESET | DRIVER_GEM | DRIVER_PRIME,
+	.driver_features = DRIVER_MODESET | DRIVER_GEM | DRIVER_PRIME | DRIVER_RENDER,
 	.load = cirrus_driver_load,
 	.unload = cirrus_driver_unload,
 	.fops = &cirrus_driver_fops,
@@ -141,6 +157,8 @@ static struct drm_driver driver = {
 	.minor = DRIVER_MINOR,
 	.patchlevel = DRIVER_PATCHLEVEL,
 	.gem_free_object_unlocked = cirrus_gem_free_object,
+	.ioctls = cirrus_ioctls,
+	.num_ioctls = ARRAY_SIZE(cirrus_ioctls),
 	.dumb_create = cirrus_dumb_create,
 	.dumb_map_offset = cirrus_dumb_mmap_offset,
 	.dumb_destroy = drm_gem_dumb_destroy,

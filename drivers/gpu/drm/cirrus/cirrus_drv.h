@@ -101,6 +101,12 @@
 
 #define CIRRUS_DPMS_CLEARED (-1)
 
+/* Neverware: provide a dumb mmap ioctl to user space [OVER-5781] */
+#define DRM_CIRRUS_MAP 0x00
+#define DRM_IOCTL_CIRRUS_MAP				  \
+	DRM_IOWR(DRM_COMMAND_BASE + DRM_CIRRUS_MAP,	  \
+		 struct drm_mode_map_dumb)
+
 #define to_cirrus_crtc(x) container_of(x, struct cirrus_crtc, base)
 #define to_cirrus_encoder(x) container_of(x, struct cirrus_encoder, base)
 #define to_cirrus_framebuffer(x) container_of(x, struct cirrus_framebuffer, base)
@@ -238,8 +244,6 @@ irqreturn_t cirrus_driver_irq_handler(int irq, void *arg);
 				/* cirrus_kms.c */
 int cirrus_driver_load(struct drm_device *dev, unsigned long flags);
 void cirrus_driver_unload(struct drm_device *dev);
-extern struct drm_ioctl_desc cirrus_ioctls[];
-extern int cirrus_max_ioctl;
 
 int cirrus_mm_init(struct cirrus_device *cirrus);
 void cirrus_mm_fini(struct cirrus_device *cirrus);
