@@ -166,7 +166,7 @@ static void drm_connector_get_cmdline_mode(struct drm_connector *connector)
 	/* Force LVDS-1 off for hardware specified in nettop_no_lvds_dmi_table.
 	 * Happens before actual command line parsing, so users may override this
 	 * behavior. */
-	if (strncmp(connector->name, "LVDS-1", 7) == 0 &&
+	if (connector->connector_type == DRM_MODE_CONNECTOR_LVDS &&
 	    dmi_check_system(nettop_no_lvds_dmi_table)) {
 		DRM_INFO("Quirk: Forcing %s connector OFF\n",
 			 connector->name);
