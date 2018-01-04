@@ -448,6 +448,10 @@ int tpm_chip_register(struct tpm_chip *chip)
 {
 	int rc;
 
+	/* Neverware: only register whitelisted chips */
+	if (!(chip->flags & TPM_CHIP_FLAG_WHITELISTED))
+		return 0;
+
 	if (chip->ops->flags & TPM_OPS_AUTO_STARTUP) {
 		if (chip->flags & TPM_CHIP_FLAG_TPM2)
 			rc = tpm2_auto_startup(chip);
@@ -506,6 +510,10 @@ EXPORT_SYMBOL_GPL(tpm_chip_register);
  */
 void tpm_chip_unregister(struct tpm_chip *chip)
 {
+	/* Neverware: only whitelisted chips actually register anything */
+	if (!(chip->flags & TPM_CHIP_FLAG_WHITELISTED))
+		return;
+
 	tpm_del_legacy_sysfs(chip);
 	if (IS_ENABLED(CONFIG_HW_RANDOM_TPM))
 		hwrng_unregister(&chip->hwrng);
