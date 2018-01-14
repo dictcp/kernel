@@ -721,6 +721,7 @@ void __init fpu__init_system_xstate(void)
 	static int on_boot_cpu __initdata = 1;
 	int err;
 	int i;
+	u64 xfeatures_mask_modified = 0;
 
 	WARN_ON_FPU(!on_boot_cpu);
 	on_boot_cpu = 0;
@@ -757,9 +758,14 @@ void __init fpu__init_system_xstate(void)
 	/*
 	 * Clear XSAVE features that are disabled in the normal CPUID.
 	 */
+	xfeatures_mask_modified = xfeatures_mask;
 	for (i = 0; i < ARRAY_SIZE(xsave_cpuid_features); i++) {
 		if (!boot_cpu_has(xsave_cpuid_features[i]))
-			xfeatures_mask &= ~BIT(i);
+			xfeatures_mask_modified &= ~BIT(i);
+	}
+	if (xfeatures_mask_modified != xfeatures_mask) {
+		pr_warn("x86/fpu: Neverware: CPU's xstate feature mask would have been modified to 0x%llx\n",
+			xfeatures_mask_modified);
 	}
 
 	xfeatures_mask &= fpu__get_supported_xfeatures_mask();
