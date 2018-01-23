@@ -1555,6 +1555,7 @@ static const char * const synaptics_broken_intertouch[] = {
 	"LEN0034", /* T431s, L440, L540, T540, W540, X1 Carbon 2nd */
 	"LEN2004", /* L440 */
 	"LEN0036", /* T440, T440p */
+	"LEN0035", /* X240 */
 	NULL
 };
 
