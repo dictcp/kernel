@@ -1805,8 +1805,8 @@ static int synaptics_setup_intertouch(struct psmouse *psmouse,
 		}
 		if (broken_synaptics_rmi4) {
 			psmouse_info(psmouse,
-				     "Your touchpad (%s) does not have a working intertouch driver, OVER-5953. ",
-				     "The device may fail to function after resuming from sleep.",
+				     "Your touchpad (%s) does not have a working intertouch driver, OVER-5953. "
+				     "The device may fail to function after resuming from sleep."
 				     "Try setting psmouse.synaptics_intertouch to 1 and report working cases to Neverware.\n",
 				     psmouse->ps2dev.serio->firmware_id);
 			return -ENXIO;
