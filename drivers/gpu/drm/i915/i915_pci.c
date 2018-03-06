@@ -23,6 +23,7 @@
  */
 
 #include <linux/console.h>
+#include <linux/dmi.h>
 #include <linux/vgaarb.h>
 #include <linux/vga_switcheroo.h>
 
@@ -562,6 +563,20 @@ static struct pci_driver i915_pci_driver = {
 	.driver.pm = &i915_pm_ops,
 };
 
+/* OVER-5470 iMac 12,1 i915 KMS does not work in Freon */
+static const struct dmi_system_id imac_no_modeset[] = {
+        {
+                .ident = "Apple iMac 12,1",
+                .matches = {
+                        DMI_MATCH(DMI_SYS_VENDOR, "Apple Inc."),
+                        DMI_MATCH(DMI_PRODUCT_NAME, "iMac12,1"),
+                },
+        },
+
+        { }     /* terminating entry */
+};
+
+
 static int __init i915_init(void)
 {
 	bool use_kms = true;
@@ -576,6 +591,9 @@ static int __init i915_init(void)
 	 * either the i915.modeset prarameter or by the
 	 * vga_text_mode_force boot option.
 	 */
+
+	if (dmi_check_system(imac_no_modeset))
+		use_kms = false;
 
 	if (i915.modeset == 0)
 		use_kms = false;
