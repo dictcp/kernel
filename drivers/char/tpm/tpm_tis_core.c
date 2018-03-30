@@ -31,6 +31,8 @@
 #include "tpm.h"
 #include "tpm_tis_core.h"
 
+static void tpm_tis_clkrun_enable(struct tpm_chip *chip, bool value);
+
 /* Before we attempt to access the TPM we must see that the valid bit is set.
  * The specification says that this bit is 0 at reset and remains 0 until the
  * 'TPM has gone through its self test and initialization and has established
@@ -663,8 +665,7 @@ void tpm_tis_remove(struct tpm_chip *chip)
 	u32 interrupt;
 	int rc;
 
-	if (chip->ops->clk_enable != NULL)
-		chip->ops->clk_enable(chip, true);
+	tpm_tis_clkrun_enable(chip, true);
 
 	rc = tpm_tis_read32(priv, reg, &interrupt);
 	if (rc < 0)
@@ -672,8 +673,10 @@ void tpm_tis_remove(struct tpm_chip *chip)
 
 	tpm_tis_write32(priv, reg, ~TPM_GLOBAL_INT_ENABLE & interrupt);
 
-	if (chip->ops->clk_enable != NULL)
-		chip->ops->clk_enable(chip, false);
+	tpm_tis_clkrun_enable(chip, false);
+
+	if (priv->ilb_base_addr)
+		iounmap(priv->ilb_base_addr);
 }
 EXPORT_SYMBOL_GPL(tpm_tis_remove);
 
@@ -683,6 +686,8 @@ EXPORT_SYMBOL_GPL(tpm_tis_remove);
  * @chip:	TPM chip to use
  * @value:	1 - Disable CLKRUN protocol, so that clocks are free running
  *		0 - Enable CLKRUN protocol
+ * Call this function directly in tpm_tis_remove() in error or driver removal
+ * path, since the chip->ops is set to NULL in tpm_chip_unregister().
  */
 static void tpm_tis_clkrun_enable(struct tpm_chip *chip, bool value)
 {
@@ -694,7 +699,6 @@ static void tpm_tis_clkrun_enable(struct tpm_chip *chip, bool value)
 		return;
 
 	if (value) {
-		data->flags |= TPM_TIS_CLK_ENABLE;
 		data->clkrun_enabled++;
 		if (data->clkrun_enabled > 1)
 			return;
@@ -725,7 +729,6 @@ static void tpm_tis_clkrun_enable(struct tpm_chip *chip, bool value)
 		 * sure LPC clock is running before sending any TPM command.
 		 */
 		outb(0xCC, 0x80);
-		data->flags &= ~TPM_TIS_CLK_ENABLE;
 	}
 }
 
@@ -784,7 +787,8 @@ int tpm_tis_core_init(struct device *dev, struct tpm_tis_data *priv, int irq,
 		      const struct tpm_tis_phy_ops *phy_ops,
 		      acpi_handle acpi_dev_handle)
 {
-	u32 vendor, intfcaps, intmask, clkrun_val;
+	u32 vendor, intfcaps, intmask;
+	u32 clkrun_val;
 	u8 rid;
 	int rc, probe;
 	struct tpm_chip *chip;
@@ -814,7 +818,6 @@ int tpm_tis_core_init(struct device *dev, struct tpm_tis_data *priv, int irq,
 		clkrun_val = ioread32(priv->ilb_base_addr + LPC_CNTRL_OFFSET);
 		/* Check if CLKRUN# is already not enabled in the LPC bus */
 		if (!(clkrun_val & LPC_CLKRUN_EN)) {
-			priv->flags |= TPM_TIS_CLK_ENABLE;
 			iounmap(priv->ilb_base_addr);
 			priv->ilb_base_addr = NULL;
 		}
@@ -925,20 +928,18 @@ int tpm_tis_core_init(struct device *dev, struct tpm_tis_data *priv, int irq,
 	}
 
 	rc = tpm_chip_register(chip);
-	if (rc && is_bsw() && priv->ilb_base_addr)
-		iounmap(priv->ilb_base_addr);
+	if (rc)
+		goto out_err;
 
 	if (chip->ops->clk_enable != NULL)
 		chip->ops->clk_enable(chip, false);
 
-	return rc;
+	return 0;
 out_err:
-	tpm_tis_remove(chip);
-	if (is_bsw())
-		iounmap(priv->ilb_base_addr);
-
-	if (chip->ops->clk_enable != NULL)
+	if ((chip->ops != NULL) && (chip->ops->clk_enable != NULL))
 		chip->ops->clk_enable(chip, false);
+
+	tpm_tis_remove(chip);
 
 	return rc;
 }
