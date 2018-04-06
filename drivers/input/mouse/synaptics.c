@@ -173,6 +173,8 @@ static const char * const smbus_pnp_ids[] = {
 	"LEN0046", /* X250 */
 	"LEN004a", /* W541 */
 	"LEN200f", /* T450s */
+	"SYN326a", /* HP Spectre x360 13-ae0xx */
+	"SYN323d", /* HP Spectre x360 13-ac0xx */
 	NULL
 };
 
