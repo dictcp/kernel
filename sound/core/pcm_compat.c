@@ -28,6 +28,7 @@ static int snd_pcm_ioctl_delay_compat(struct snd_pcm_substream *substream,
 {
 	int err;
 	snd_pcm_sframes_t delay;
+	int err;
 
 	err = snd_pcm_delay(substream, &delay);
 	if (err)
