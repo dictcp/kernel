@@ -3315,6 +3315,10 @@ static void addrconf_dev_config(struct net_device *dev)
 		return;
 	}
 
+	/* this device does not want automatic IPv6 LLs */
+	if (dev->priv_flags & IFF_SUPPRESS_AUTO_IPV6_LL)
+		return;
+
 	idev = addrconf_add_dev(dev);
 	if (IS_ERR(idev))
 		return;
@@ -5502,6 +5506,9 @@ static int inet6_set_link_af(struct net_device *dev, const struct nlattr *nla)
 
 		idev->cnf.addr_gen_mode = mode;
 		err = 0;
+
+		/* turn off suppression since user has requested addrgen */
+		dev->priv_flags &= ~IFF_SUPPRESS_AUTO_IPV6_LL;
 	}
 
 	return err;
