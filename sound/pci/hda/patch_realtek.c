@@ -5177,6 +5177,44 @@ static void alc295_fixup_disable_dac3(struct hda_codec *codec,
 	}
 }
 
+/* Fix the HP spectre x360 from 2017. */
+static void alc295_fixup_hp_spectre_x360_2017(struct hda_codec *codec,
+		const struct hda_fixup *fix, int action)
+{
+	static const struct hda_pintbl pincfgs[] = {
+		{ 0x17, 0x96170110 }, /* front/bottom speaker */
+		// how about just modify the 0x14 isntead of setting pinctrl?
+		//{ 0x14, 0x95170111 }, /* top speakers  */
+		//{ 0x16, 0x90170112 }, /* What is this one? it helps line up controls if I include it? */
+#if 0
+		// This seemed to work just ok.
+		{ 0x17, 0x90170110 }, /* front/bottom speaker */
+		{ 0x14, 0x90170110 }, /* top speakers  */
+#endif
+		{ }
+	};
+
+	snd_hda_apply_pincfgs(codec, pincfgs);
+	snd_hda_set_pin_ctl_cache(codec, 0x1e, AC_PINCTL_OUT_EN);
+	snd_hda_set_pin_ctl_cache(codec, 0x1d, AC_PINCTL_IN_EN);
+	snd_hda_set_pin_ctl_cache(codec, 0x14, AC_PINCTL_OUT_EN);
+
+	snd_hda_codec_write(codec, 0x14, 0,
+			    AC_VERB_SET_PIN_WIDGET_CONTROL, PIN_OUT);
+	snd_hda_codec_write(codec, 0x14, 0,
+			    AC_VERB_SET_AMP_GAIN_MUTE, AMP_OUT_UNMUTE);
+	// Have to turn it on?
+	snd_hda_codec_write(codec, 0x14, 0,
+			    AC_VERB_SET_POWER_STATE, AC_PWRST_D0);
+	snd_hda_set_pin_ctl_cache(codec, 0x19, AC_PINCTL_VREF_50);
+	//snd_hda_sequence_write(codec, alc_gpio3_init_verbs);
+	// Remove the 0x06 from x17, it isn't needed.
+	//alc295_fixup_disable_dac3(codec, fix, action);
+	//alc_process_coef_fw(codec, alc295_hp_speakers_coefs);
+}
+
+
+
 /* Hook to update amp GPIO4 for automute */
 static void alc280_hp_gpio4_automute_hook(struct hda_codec *codec,
 					  struct hda_jack_callback *jack)
@@ -5373,6 +5411,7 @@ enum {
 	ALC225_FIXUP_DELL1_MIC_NO_PRESENCE,
 	ALC295_FIXUP_DISABLE_DAC3,
 	ALC295_FIXUP_HP_DISABLE_AUTOMUTE,
+	ALC295_FIXUP_HP_SPECTRE_X360,
 	ALC280_FIXUP_HP_HEADSET_MIC,
 	ALC221_FIXUP_HP_FRONT_MIC,
 	ALC292_FIXUP_TPT460,
@@ -6142,6 +6181,12 @@ static const struct hda_fixup alc269_fixups[] = {
 		.type = HDA_FIXUP_FUNC,
 		.v.func = alc_fixup_auto_mute_via_amp,
 	},
+	[ALC295_FIXUP_HP_SPECTRE_X360] = {
+		.type = HDA_FIXUP_FUNC,
+		.v.func = alc295_fixup_hp_spectre_x360_2017,
+		.chained = true,
+		.chain_id = ALC295_FIXUP_HP_DISABLE_AUTOMUTE
+	},
 	[ALC256_FIXUP_DELL_INSPIRON_7559_SUBWOOFER] = {
 		.type = HDA_FIXUP_PINS,
 		.v.pins = (const struct hda_pintbl[]) {
@@ -6414,7 +6459,8 @@ static const struct snd_pci_quirk alc269_fixup_tbl[] = {
 	SND_PCI_QUIRK(0x103c, 0x8256, "HP", ALC221_FIXUP_HP_FRONT_MIC),
 	SND_PCI_QUIRK(0x103c, 0x82bf, "HP", ALC221_FIXUP_HP_MIC_NO_PRESENCE),
 	SND_PCI_QUIRK(0x103c, 0x82c0, "HP", ALC221_FIXUP_HP_MIC_NO_PRESENCE),
-	SND_PCI_QUIRK(0x103c, 0x83b9, "HP Spectre X360 ", ALC295_FIXUP_HP_DISABLE_AUTOMUTE),
+	//SND_PCI_QUIRK(0x103c, 0x83b9, "HP Spectre X360 ", ALC295_FIXUP_HP_DISABLE_AUTOMUTE),
+	SND_PCI_QUIRK(0x103c, 0x83b9, "HP Spectre X360 ", ALC295_FIXUP_HP_SPECTRE_X360),
 	SND_PCI_QUIRK(0x1043, 0x103e, "ASUS X540SA", ALC256_FIXUP_ASUS_MIC),
 	SND_PCI_QUIRK(0x1043, 0x103f, "ASUS TX300", ALC282_FIXUP_ASUS_TX300),
 	SND_PCI_QUIRK(0x1043, 0x106d, "Asus K53BE", ALC269_FIXUP_LIMIT_INT_MIC_BOOST),
