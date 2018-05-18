@@ -5184,8 +5184,8 @@ static void alc295_fixup_hp_spectre_x360_2017(struct hda_codec *codec,
 	static const struct hda_pintbl pincfgs[] = {
 		{ 0x17, 0x96170110 }, /* front/bottom speaker */
 		// how about just modify the 0x14 isntead of setting pinctrl?
-		//{ 0x14, 0x95170111 }, /* top speakers  */
-		//{ 0x16, 0x90170112 }, /* What is this one? it helps line up controls if I include it? */
+		{ 0x14, 0x95170111 }, /* top speakers  */
+		{ 0x16, 0x90170112 }, /* What is this one? it helps line up controls if I include it? */
 #if 0
 		// This seemed to work just ok.
 		{ 0x17, 0x90170110 }, /* front/bottom speaker */
