@@ -5186,6 +5186,7 @@ static void alc295_fixup_hp_spectre_x360_2017(struct hda_codec *codec,
 		// how about just modify the 0x14 isntead of setting pinctrl?
 		{ 0x16, 0x90170111 }, /* top speakers */
 		{ 0x14, 0x90170112 }, /* lets the control skip past it ... */
+		/*  0x14 is set by windows to be 0x90170110 the same as 0x17... */
 #if 0
 		// This seemed to work just ok.
 		{ 0x17, 0x90170110 }, /* front/bottom speaker */
@@ -5207,8 +5208,13 @@ static void alc295_fixup_hp_spectre_x360_2017(struct hda_codec *codec,
 	snd_hda_codec_write(codec, 0x14, 0,
 			    AC_VERB_SET_POWER_STATE, AC_PWRST_D0);
 	snd_hda_set_pin_ctl_cache(codec, 0x19, AC_PINCTL_VREF_50);
+
+	// This didn't really work or help much.
+	// Force 0x14 to go to 0x03 instead of 0x02 it's only default...
+	//hda_nid_t conn[1] = { 0x03 };
+	//snd_hda_override_conn_list(codec, 0x14, 1, conn);
 	//snd_hda_sequence_write(codec, alc_gpio3_init_verbs);
-	// Remove the 0x06 from x17, it isn't needed.
+	// Remove the 0x06 from x17, it doesn't have a volume control.
 	//alc295_fixup_disable_dac3(codec, fix, action);
 	//alc_process_coef_fw(codec, alc295_hp_speakers_coefs);
 }
