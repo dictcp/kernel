@@ -814,7 +814,7 @@ static void crng_initialize(struct crng_state *crng)
 }
 
 #ifdef CONFIG_NUMA
-static void do_numa_crng_init(struct work_struct *work)
+static void numa_crng_init(void)
 {
 	int i;
 	struct crng_state *crng;
@@ -834,13 +834,6 @@ static void do_numa_crng_init(struct work_struct *work)
 			kfree(pool[i]);
 		kfree(pool);
 	}
-}
-
-static DECLARE_WORK(numa_crng_init_work, do_numa_crng_init);
-
-static void numa_crng_init(void)
-{
-	schedule_work(&numa_crng_init_work);
 }
 #else
 static void numa_crng_init(void) {}
