@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2013 - 2017 DisplayLink (UK) Ltd.
  *
@@ -8,11 +9,22 @@
 
 #include <drm/drmP.h>
 #include <drm/drm_edid.h>
-#include <uapi/drm/evdi_drm.h>
+#include "evdi_drm.h"
 #include "evdi_drv.h"
 #include "evdi_cursor.h"
+#include "evdi_params.h"
 #include <linux/mutex.h>
 #include <linux/compiler.h>
+
+struct evdi_event_cursor_set_pending {
+	struct drm_pending_event base;
+	struct drm_evdi_event_cursor_set cursor_set;
+};
+
+struct evdi_event_cursor_move_pending {
+	struct drm_pending_event base;
+	struct drm_evdi_event_cursor_move cursor_move;
+};
 
 struct evdi_event_update_ready_pending {
 	struct drm_pending_event base;
@@ -107,13 +119,12 @@ static void collapse_dirty_rects(struct drm_clip_rect *rects, int *count)
 	*count = 1;
 }
 
-static int copy_pixels(struct evdi_framebuffer *ufb,
+static int copy_primary_pixels(struct evdi_framebuffer *ufb,
 			char __user *buffer,
 			int buf_byte_stride,
 			int num_rects, struct drm_clip_rect *rects,
 			int const max_x,
-			int const max_y,
-			struct evdi_cursor *cursor_copy)
+			int const max_y)
 {
 	struct drm_framebuffer *fb = &ufb->base;
 	struct drm_clip_rect *r;
@@ -147,11 +158,25 @@ static int copy_pixels(struct evdi_framebuffer *ufb,
 		}
 	}
 
-	return evdi_cursor_composing_and_copy(cursor_copy,
+	return 0;
+}
+
+static int copy_cursor_pixels(struct evdi_framebuffer *ufb,
+			char __user *buffer,
+			int buf_byte_stride,
+			struct evdi_cursor *cursor)
+{
+	int ret = 0;
+
+	if (evdi_enable_cursor_blending) {
+		evdi_cursor_lock(cursor);
+		ret = evdi_cursor_compose_and_copy(cursor,
 				       ufb,
 				       buffer,
-				       buf_byte_stride,
-				       max_x, max_y);
+				       buf_byte_stride);
+		evdi_cursor_unlock(cursor);
+	}
+	return ret;
 }
 
 #define painter_lock(painter)                           \
@@ -213,6 +238,109 @@ static void evdi_painter_send_update_ready(struct evdi_painter *painter)
 		event->update_ready.base.length = sizeof(event->update_ready);
 		event->base.event = &event->update_ready.base;
 		event->base.file_priv = painter->drm_filp;
+#if KERNEL_VERSION(4, 8, 0) > LINUX_VERSION_CODE
+		event->base.destroy =
+		    (void (*)(struct drm_pending_event *))kfree;
+#endif
+		evdi_painter_send_event(painter->drm_filp, &event->base.link);
+	} else {
+		EVDI_WARN("Painter is not connected!");
+	}
+}
+
+static uint32_t evdi_painter_get_gem_handle(struct evdi_painter *painter,
+					   struct evdi_gem_object *obj)
+{
+	uint32_t handle = 0;
+
+	if (!obj)
+		return 0;
+
+	handle = evdi_gem_object_handle_lookup(painter->drm_filp, &obj->base);
+
+	if (handle)
+		return handle;
+
+	if (drm_gem_handle_create(painter->drm_filp,
+			      &obj->base, &handle)) {
+		EVDI_ERROR("Failed to create gem handle for %p\n",
+			painter->drm_filp);
+	}
+
+	return handle;
+}
+
+void evdi_painter_send_cursor_set(struct evdi_painter *painter,
+				  struct evdi_cursor *cursor)
+{
+	struct evdi_event_cursor_set_pending *event;
+	struct evdi_gem_object *eobj = NULL;
+
+	if (painter->drm_filp) {
+		event = kzalloc(sizeof(*event), GFP_KERNEL);
+		event->cursor_set.base.type = DRM_EVDI_EVENT_CURSOR_SET;
+		event->cursor_set.base.length =
+			sizeof(event->cursor_set);
+
+		evdi_cursor_lock(cursor);
+		event->cursor_set.enabled = evdi_cursor_enabled(cursor);
+		evdi_cursor_hotpoint(cursor,
+			&event->cursor_set.hot_x,
+			&event->cursor_set.hot_y);
+		evdi_cursor_size(cursor,
+			&event->cursor_set.width,
+			&event->cursor_set.height);
+		evdi_cursor_format(cursor,
+			&event->cursor_set.pixel_format);
+		evdi_cursor_stride(cursor,
+			&event->cursor_set.stride);
+		eobj = evdi_cursor_gem(cursor);
+		event->cursor_set.buffer_handle =
+			evdi_painter_get_gem_handle(painter, eobj);
+		if (eobj)
+			event->cursor_set.buffer_length = eobj->base.size;
+		if (!event->cursor_set.buffer_handle) {
+			event->cursor_set.enabled = false;
+			event->cursor_set.buffer_length = 0;
+		}
+		evdi_cursor_unlock(cursor);
+
+
+		event->base.event = &event->cursor_set.base;
+		event->base.file_priv = painter->drm_filp;
+#if KERNEL_VERSION(4, 8, 0) > LINUX_VERSION_CODE
+		event->base.destroy =
+		    (void (*)(struct drm_pending_event *))kfree;
+#endif
+		evdi_painter_send_event(painter->drm_filp, &event->base.link);
+	} else {
+		EVDI_WARN("Painter is not connected!");
+	}
+}
+
+void evdi_painter_send_cursor_move(struct evdi_painter *painter,
+				   struct evdi_cursor *cursor)
+{
+	struct evdi_event_cursor_move_pending *event;
+
+	if (painter->drm_filp) {
+		event = kzalloc(sizeof(*event), GFP_KERNEL);
+		event->cursor_move.base.type = DRM_EVDI_EVENT_CURSOR_MOVE;
+		event->cursor_move.base.length = sizeof(event->cursor_move);
+
+		evdi_cursor_lock(cursor);
+		evdi_cursor_position(
+			cursor,
+			&event->cursor_move.x,
+			&event->cursor_move.y);
+		evdi_cursor_unlock(cursor);
+
+		event->base.event = &event->cursor_move.base;
+		event->base.file_priv = painter->drm_filp;
+#if KERNEL_VERSION(4, 8, 0) > LINUX_VERSION_CODE
+		event->base.destroy =
+		    (void (*)(struct drm_pending_event *))kfree;
+#endif
 		evdi_painter_send_event(painter->drm_filp, &event->base.link);
 	} else {
 		EVDI_WARN("Painter is not connected!");
@@ -230,6 +358,10 @@ static void evdi_painter_send_dpms(struct evdi_painter *painter, int mode)
 		event->dpms.mode = mode;
 		event->base.event = &event->dpms.base;
 		event->base.file_priv = painter->drm_filp;
+#if KERNEL_VERSION(4, 8, 0) > LINUX_VERSION_CODE
+		event->base.destroy =
+		    (void (*)(struct drm_pending_event *))kfree;
+#endif
 		evdi_painter_send_event(painter->drm_filp, &event->base.link);
 	} else {
 		EVDI_WARN("Painter is not connected!");
@@ -248,6 +380,10 @@ static void evdi_painter_send_crtc_state(struct evdi_painter *painter,
 		event->crtc_state.state = state;
 		event->base.event = &event->crtc_state.base;
 		event->base.file_priv = painter->drm_filp;
+#if KERNEL_VERSION(4, 8, 0) > LINUX_VERSION_CODE
+		event->base.destroy =
+		    (void (*)(struct drm_pending_event *))kfree;
+#endif
 		evdi_painter_send_event(painter->drm_filp, &event->base.link);
 	} else {
 		EVDI_WARN("Painter is not connected!");
@@ -276,6 +412,10 @@ static void evdi_painter_send_mode_changed(
 
 		event->base.event = &event->mode_changed.base;
 		event->base.file_priv = painter->drm_filp;
+#if KERNEL_VERSION(4, 8, 0) > LINUX_VERSION_CODE
+		event->base.destroy =
+		    (void (*)(struct drm_pending_event *))kfree;
+#endif
 		evdi_painter_send_event(painter->drm_filp, &event->base.link);
 	} else {
 		EVDI_WARN("Painter is not connected!");
@@ -353,8 +493,13 @@ void evdi_painter_mode_changed_notify(struct evdi_device *evdi,
 {
 	struct evdi_painter *painter = evdi->painter;
 
+#if KERNEL_VERSION(4, 11, 0) > LINUX_VERSION_CODE
+	int bits_per_pixel = fb->bits_per_pixel;
+	uint32_t pixel_format = fb->pixel_format;
+#else
 	int bits_per_pixel = fb->format->cpp[0] * 8;
 	uint32_t pixel_format = fb->format->format;
+#endif
 
 	EVDI_DEBUG(
 		"(dev=%d) Notifying mode changed: %dx%d@%d; bpp %d; ",
@@ -466,6 +611,9 @@ static void evdi_painter_disconnect(struct evdi_device *evdi,
 
 	EVDI_DEBUG("(dev=%d) Disconnected from %p\n", evdi->dev_index,
 		   painter->drm_filp);
+
+	evdi_cursor_enable(evdi->cursor, false);
+
 	painter->drm_filp = NULL;
 	evdi->dev_index = -1;
 
@@ -519,18 +667,12 @@ int evdi_painter_grabpix_ioctl(struct drm_device *drm_dev, void *data,
 	struct drm_evdi_grabpix *cmd = data;
 	struct drm_framebuffer *fb = NULL;
 	struct evdi_framebuffer *efb = NULL;
-	struct evdi_cursor *cursor_copy = NULL;
 	int err = 0;
 
 	EVDI_CHECKPT();
 
 	if (!painter)
 		return -ENODEV;
-
-	mutex_lock(&drm_dev->struct_mutex);
-	if (evdi_cursor_alloc(&cursor_copy) == 0)
-		evdi_cursor_copy(cursor_copy, evdi->cursor);
-	mutex_unlock(&drm_dev->struct_mutex);
 
 	painter_lock(painter);
 
@@ -591,22 +733,24 @@ int evdi_painter_grabpix_ioctl(struct drm_device *drm_dev, void *data,
 		if (copy_to_user(cmd->rects, painter->dirty_rects,
 			cmd->num_rects * sizeof(cmd->rects[0])))
 			err = -EFAULT;
-		else
-			err = copy_pixels(efb,
-					  cmd->buffer,
-					  cmd->buf_byte_stride,
-					  painter->num_dirts,
-					  painter->dirty_rects,
-					  cmd->buf_width,
-					  cmd->buf_height,
-					  cursor_copy);
+		if (err == 0)
+			err = copy_primary_pixels(efb,
+					cmd->buffer,
+					cmd->buf_byte_stride,
+					painter->num_dirts,
+					painter->dirty_rects,
+					cmd->buf_width,
+					cmd->buf_height);
+		if (err == 0)
+			err = copy_cursor_pixels(efb,
+					cmd->buffer,
+					cmd->buf_byte_stride,
+					evdi->cursor);
 
 		painter->num_dirts = 0;
 	}
 unlock:
 	painter_unlock(painter);
-	if (cursor_copy)
-		evdi_cursor_free(cursor_copy);
 
 	return err;
 }

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (C) 2012 Red Hat
  * Copyright (c) 2015 - 2016 DisplayLink (UK) Ltd.
@@ -10,17 +11,17 @@
  * more details.
  */
 
+#include <linux/version.h>
 #include <drm/drmP.h>
 #include <drm/drm_crtc.h>
 #include <drm/drm_crtc_helper.h>
+#if KERNEL_VERSION(3, 17, 0) <= LINUX_VERSION_CODE
 #include <drm/drm_plane_helper.h>
-#include <uapi/drm/evdi_drm.h>
+#endif
+#include "evdi_drm.h"
 #include "evdi_drv.h"
 #include "evdi_cursor.h"
-
-#define EVDI_CURSOR_W 64
-#define EVDI_CURSOR_H 64
-#define EVDI_CURSOR_BUF (EVDI_CURSOR_W * EVDI_CURSOR_H)
+#include "evdi_params.h"
 
 struct evdi_flip_queue {
 	struct mutex lock;
@@ -62,7 +63,7 @@ static int evdi_crtc_mode_set(struct drm_crtc *crtc,
 	struct drm_clip_rect rect;
 
 	if (crtc->primary == NULL) {
-		EVDI_DEBUG("evdi_crtc_mode_set primary plane is NULL");
+		EVDI_DEBUG("%s primary plane is NULL", __func__);
 		return 0;
 	}
 
@@ -147,17 +148,28 @@ static void evdi_sched_page_flip(struct work_struct *work)
 		unsigned long flags = 0;
 
 		spin_lock_irqsave(&dev->event_lock, flags);
+#if KERNEL_VERSION(4, 8, 0) > LINUX_VERSION_CODE
+		drm_send_vblank_event(dev, 0, event);
+#else
 		drm_crtc_send_vblank_event(crtc, event);
+#endif
 		spin_unlock_irqrestore(&dev->event_lock, flags);
 	}
 }
 
+#if KERNEL_VERSION(4, 12, 0) > LINUX_VERSION_CODE
+static int evdi_crtc_page_flip(struct drm_crtc *crtc,
+			       struct drm_framebuffer *fb,
+			       struct drm_pending_vblank_event *event,
+			       __always_unused uint32_t page_flip_flags)
+#else
 static int evdi_crtc_page_flip(
 	struct drm_crtc *crtc,
 	struct drm_framebuffer *fb,
 	struct drm_pending_vblank_event *event,
 	__always_unused uint32_t page_flip_flags,
 	__always_unused struct drm_modeset_acquire_ctx *ctx)
+#endif
 {
 	struct drm_device *dev = crtc->dev;
 	struct evdi_device *evdi = dev->dev_private;
@@ -191,7 +203,11 @@ static int evdi_crtc_page_flip(
 			unsigned long flags = 0;
 
 			spin_lock_irqsave(&dev->event_lock, flags);
+#if KERNEL_VERSION(4, 8, 0) > LINUX_VERSION_CODE
+			drm_send_vblank_event(dev, 0, flip_queue->event);
+#else
 			drm_crtc_send_vblank_event(crtc, flip_queue->event);
+#endif
 			spin_unlock_irqrestore(&dev->event_lock, flags);
 		}
 		flip_queue->event = event;
@@ -214,19 +230,51 @@ static int evdi_crtc_cursor_set(struct drm_crtc *crtc,
 				struct drm_file *file,
 				uint32_t handle,
 				uint32_t width,
-				uint32_t height)
+				uint32_t height,
+				int32_t hot_x,
+				int32_t hot_y)
 {
 	struct drm_device *dev = crtc->dev;
 	struct evdi_device *evdi = dev->dev_private;
+	struct drm_gem_object *obj = NULL;
+	struct evdi_gem_object *eobj = NULL;
 	int ret;
+	/*
+	 * evdi_crtc_cursor_set is callback function using
+	 * deprecated cursor entry point.
+	 * There is no info about underlaying pixel format.
+	 * Hence we are assuming that it is in ARGB 32bpp format.
+	 * This format it the only one supported in cursor composition
+	 * function.
+	 * This format is also enforced during framebuffer creation.
+	 *
+	 * Proper format will be available when driver start support
+	 * universal planes for cursor.
+	 */
+	uint32_t format = DRM_FORMAT_ARGB8888;
+	uint32_t stride = 4 * width;
 
 	EVDI_CHECKPT();
-	mutex_lock(&dev->struct_mutex);
-	ret = evdi_cursor_set(crtc, file, handle, width, height, evdi->cursor);
-	mutex_unlock(&dev->struct_mutex);
-	EVDI_VERBOSE("evdi_crtc_cursor_set unlock\n");
+	if (handle) {
+		mutex_lock(&dev->struct_mutex);
+#if KERNEL_VERSION(4, 7, 0) > LINUX_VERSION_CODE
+		obj = drm_gem_object_lookup(crtc->dev, file, handle);
+#else
+		obj = drm_gem_object_lookup(file, handle);
+#endif
+		if (obj)
+			eobj = to_evdi_bo(obj);
+		else
+			EVDI_ERROR("Failed to lookup gem object.\n");
+		mutex_unlock(&dev->struct_mutex);
+	}
+
+	ret = evdi_cursor_set(evdi->cursor,
+			      eobj, width, height, hot_x, hot_y,
+			      format, stride);
+	drm_gem_object_unreference_unlocked(obj);
 	if (ret) {
-		DRM_ERROR("Failed to set evdi cursor\n");
+		EVDI_ERROR("Failed to set evdi cursor\n");
 		return ret;
 	}
 
@@ -234,29 +282,32 @@ static int evdi_crtc_cursor_set(struct drm_crtc *crtc,
 	 * For now we don't care whether the application wanted the mouse set,
 	 * or not.
 	 */
-	return evdi_crtc_page_flip(crtc, NULL, NULL, 0, NULL);
+	if (evdi_enable_cursor_blending)
+#if KERNEL_VERSION(4, 12, 0) > LINUX_VERSION_CODE
+		return evdi_crtc_page_flip(crtc, NULL, NULL, 0);
+#else
+		return evdi_crtc_page_flip(crtc, NULL, NULL, 0, NULL);
+#endif
+	evdi_painter_send_cursor_set(evdi->painter, evdi->cursor);
+	return 0;
 }
 
 static int evdi_crtc_cursor_move(struct drm_crtc *crtc, int x, int y)
 {
 	struct drm_device *dev = crtc->dev;
 	struct evdi_device *evdi = dev->dev_private;
-	int ret = 0;
 
-	mutex_lock(&dev->struct_mutex);
-	if (!evdi_cursor_enabled(evdi->cursor))
-		goto error;
-	ret = evdi_cursor_move(crtc, x, y, evdi->cursor);
-	if (ret) {
-		DRM_ERROR("Failed to move evdi cursor\n");
-		goto error;
-	}
-	mutex_unlock(&dev->struct_mutex);
-	return evdi_crtc_page_flip(crtc, NULL, NULL, 0, NULL);
+	evdi_cursor_move(evdi->cursor, x, y);
 
-error:
-	mutex_unlock(&dev->struct_mutex);
-	return ret;
+	if (evdi_enable_cursor_blending)
+#if KERNEL_VERSION(4, 12, 0) > LINUX_VERSION_CODE
+		return evdi_crtc_page_flip(crtc, NULL, NULL, 0);
+#else
+		return evdi_crtc_page_flip(crtc, NULL, NULL, 0, NULL);
+#endif
+
+	evdi_painter_send_cursor_move(evdi->painter, evdi->cursor);
+	return 0;
 }
 
 static void evdi_crtc_prepare(__always_unused struct drm_crtc *crtc)
@@ -284,7 +335,7 @@ static const struct drm_crtc_funcs evdi_crtc_funcs = {
 	.set_config = drm_crtc_helper_set_config,
 	.destroy = evdi_crtc_destroy,
 	.page_flip = evdi_crtc_page_flip,
-	.cursor_set = evdi_crtc_cursor_set,
+	.cursor_set2 = evdi_crtc_cursor_set,
 	.cursor_move = evdi_crtc_cursor_move,
 };
 
@@ -369,6 +420,17 @@ int evdi_modeset_init(struct drm_device *dev)
 
 	dev->mode_config.funcs = &evdi_mode_funcs;
 
+#if KERNEL_VERSION(4, 9, 0) > LINUX_VERSION_CODE
+	drm_mode_create_dirty_info_property(dev);
+#endif
+
+#if KERNEL_VERSION(4, 8, 0) <= LINUX_VERSION_CODE
+
+#elif KERNEL_VERSION(4, 5, 0) <= LINUX_VERSION_CODE
+	drm_dev_set_unique(dev, dev_name(dev->dev));
+#elif KERNEL_VERSION(3, 16, 0) <= LINUX_VERSION_CODE
+	drm_dev_set_unique(dev, "%s", dev_name(dev->dev));
+#endif
 	evdi_crtc_init(dev);
 
 	encoder = evdi_encoder_init(dev);

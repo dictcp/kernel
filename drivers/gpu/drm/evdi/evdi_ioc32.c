@@ -1,4 +1,5 @@
-/**
+// SPDX-License-Identifier: GPL-2.0-only
+/*
  * evdi_ioc32.c
  *
  * Copyright (c) 2016 The Chromium OS Authors
@@ -22,7 +23,7 @@
 
 #include <drm/drmP.h>
 #include <drm/drm_edid.h>
-#include <uapi/drm/evdi_drm.h>
+#include "evdi_drm.h"
 
 #include "evdi_drv.h"
 

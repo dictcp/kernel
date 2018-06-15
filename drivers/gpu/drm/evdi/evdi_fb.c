@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (C) 2012 Red Hat
  * Copyright (c) 2015 - 2016 DisplayLink (UK) Ltd.
@@ -13,6 +14,7 @@
 #include <linux/slab.h>
 #include <linux/fb.h>
 #include <linux/dma-buf.h>
+#include <linux/version.h>
 #include <drm/drmP.h>
 #include <drm/drm_crtc.h>
 #include <drm/drm_crtc_helper.h>
@@ -228,6 +230,9 @@ static int evdi_user_framebuffer_dirty(struct drm_framebuffer *fb,
 		ret =
 		    dma_buf_begin_cpu_access(
 			ufb->obj->base.import_attach->dmabuf,
+#if KERNEL_VERSION(4, 6, 0) > LINUX_VERSION_CODE
+			0, ufb->obj->base.size,
+#endif
 			DMA_FROM_DEVICE);
 		if (ret)
 			goto unlock;
@@ -243,6 +248,9 @@ static int evdi_user_framebuffer_dirty(struct drm_framebuffer *fb,
 
 	if (ufb->obj->base.import_attach)
 		dma_buf_end_cpu_access(ufb->obj->base.import_attach->dmabuf,
+#if KERNEL_VERSION(4, 6, 0) > LINUX_VERSION_CODE
+				       0, ufb->obj->base.size,
+#endif
 				       DMA_FROM_DEVICE);
 	atomic_add(1, &evdi->frame_count);
  unlock:
@@ -264,9 +272,6 @@ static void evdi_user_framebuffer_destroy(struct drm_framebuffer *fb)
 	struct evdi_framebuffer *ufb = to_evdi_fb(fb);
 
 	EVDI_CHECKPT();
-	if (ufb->obj->vmapping)
-		evdi_gem_vunmap(ufb->obj);
-
 	if (ufb->obj)
 		drm_gem_object_unreference_unlocked(&ufb->obj->base);
 
@@ -283,11 +288,19 @@ static const struct drm_framebuffer_funcs evdifb_funcs = {
 static int
 evdi_framebuffer_init(struct drm_device *dev,
 		      struct evdi_framebuffer *ufb,
+#if KERNEL_VERSION(4, 5, 0) > LINUX_VERSION_CODE
+		      struct drm_mode_fb_cmd2 *mode_cmd,
+#else
 		      const struct drm_mode_fb_cmd2 *mode_cmd,
+#endif
 		      struct evdi_gem_object *obj)
 {
 	ufb->obj = obj;
+#if KERNEL_VERSION(4, 11, 0) > LINUX_VERSION_CODE
+	drm_helper_mode_fill_fb_struct(&ufb->base, mode_cmd);
+#else
 	drm_helper_mode_fill_fb_struct(dev, &ufb->base, mode_cmd);
+#endif
 	return drm_framebuffer_init(dev, &ufb->base, &evdifb_funcs);
 }
 
@@ -356,7 +369,11 @@ static int evdifb_create(struct drm_fb_helper *helper,
 
 	info->flags = FBINFO_DEFAULT | FBINFO_CAN_FORCE_OUTPUT;
 	info->fbops = &evdifb_ops;
+#if KERNEL_VERSION(4, 11, 0) > LINUX_VERSION_CODE
+	drm_fb_helper_fill_fix(info, fb->pitches[0], fb->depth);
+#else
 	drm_fb_helper_fill_fix(info, fb->pitches[0], fb->format->depth);
+#endif
 	drm_fb_helper_fill_var(info, &ufbdev->helper, sizes->fb_width,
 			       sizes->fb_height);
 
@@ -412,9 +429,18 @@ int evdi_fbdev_init(struct drm_device *dev)
 		return -ENOMEM;
 
 	evdi->fbdev = ufbdev;
+#if KERNEL_VERSION(3, 17, 0) <= LINUX_VERSION_CODE
 	drm_fb_helper_prepare(dev, &ufbdev->helper, &evdi_fb_helper_funcs);
+#else
+	ufbdev->helper.funcs = &evdi_fb_helper_funcs;
+	ufbdev->helper.dev = dev;
+#endif
 
+#if KERNEL_VERSION(4, 11, 0) > LINUX_VERSION_CODE
+	ret = drm_fb_helper_init(dev, &ufbdev->helper, 1, 1);
+#else
 	ret = drm_fb_helper_init(dev, &ufbdev->helper, 1);
+#endif
 	if (ret) {
 		kfree(ufbdev);
 		return ret;
@@ -462,32 +488,48 @@ void evdi_fbdev_unplug(struct drm_device *dev)
 	}
 }
 
-static int evdi_fb_get_bpp(u32 format)
+int evdi_fb_get_bpp(uint32_t format)
 {
+#if KERNEL_VERSION(4, 10, 0) <= LINUX_VERSION_CODE
 	const struct drm_format_info *info = drm_format_info(format);
 
 	if (!info)
 		return 0;
 	return info->cpp[0] * 8;
+#else
+	unsigned int depth;
+	int bpp;
+
+	drm_fb_get_bpp_depth(format, &depth, &bpp);
+	return bpp;
+#endif
 }
 
 struct drm_framebuffer *evdi_fb_user_fb_create(
 					struct drm_device *dev,
 					struct drm_file *file,
+#if KERNEL_VERSION(4, 5, 0) > LINUX_VERSION_CODE
+					struct drm_mode_fb_cmd2 *mode_cmd)
+#else
 					const struct drm_mode_fb_cmd2 *mode_cmd)
+#endif
 {
 	struct drm_gem_object *obj;
 	struct evdi_framebuffer *ufb;
 	int ret;
 	uint32_t size;
-
 	int bpp = evdi_fb_get_bpp(mode_cmd->pixel_format);
+
 	if (bpp != 32) {
 		EVDI_ERROR("Unsupported bpp (%d)\n", bpp);
 		return ERR_PTR(-EINVAL);
 	}
 
+#if KERNEL_VERSION(4, 7, 0) > LINUX_VERSION_CODE
+	obj = drm_gem_object_lookup(dev, file, mode_cmd->handles[0]);
+#else
 	obj = drm_gem_object_lookup(file, mode_cmd->handles[0]);
+#endif
 	if (obj == NULL)
 		return ERR_PTR(-ENOENT);
 
