@@ -1,4 +1,4 @@
-/*
+/* SPDX-License-Identifier: GPL-2.0-only
  * Copyright (C) 2012 Red Hat
  * Copyright (c) 2015 - 2017 DisplayLink (UK) Ltd.
  *
@@ -14,20 +14,23 @@
 #define EVDI_DRV_H
 
 #include <linux/module.h>
+#include <linux/version.h>
 #include <drm/drmP.h>
 #include <drm/drm_crtc.h>
 #include <drm/drm_crtc_helper.h>
-#include <drm/drm_gem.h>
 #include <drm/drm_rect.h>
+#if KERNEL_VERSION(3, 18, 0) <= LINUX_VERSION_CODE
+# include <drm/drm_gem.h>
+#endif
 #include "evdi_debug.h"
 
 #define DRIVER_NAME   "evdi"
 #define DRIVER_DESC   "Extensible Virtual Display Interface"
-#define DRIVER_DATE   "20170417"
+#define DRIVER_DATE   "20170419"
 
 #define DRIVER_MAJOR      1
-#define DRIVER_MINOR      4
-#define DRIVER_PATCHLEVEL 1
+#define DRIVER_MINOR      5
+#define DRIVER_PATCHLEVEL 0
 
 struct evdi_fbdev;
 struct evdi_painter;
@@ -74,7 +77,11 @@ int evdi_connector_init(struct drm_device *dev, struct drm_encoder *encoder);
 struct drm_encoder *evdi_encoder_init(struct drm_device *dev);
 
 int evdi_driver_load(struct drm_device *dev, unsigned long flags);
+#if KERNEL_VERSION(4, 11, 0) > LINUX_VERSION_CODE
+int evdi_driver_unload(struct drm_device *dev);
+#else
 void evdi_driver_unload(struct drm_device *dev);
+#endif
 void evdi_driver_preclose(struct drm_device *dev, struct drm_file *file_priv);
 
 #ifdef CONFIG_COMPAT
@@ -87,7 +94,11 @@ void evdi_fbdev_unplug(struct drm_device *dev);
 struct drm_framebuffer *evdi_fb_user_fb_create(
 				struct drm_device *dev,
 				struct drm_file *file,
+#if KERNEL_VERSION(4, 5, 0) > LINUX_VERSION_CODE
+				struct drm_mode_fb_cmd2 *mode_cmd);
+#else
 				const struct drm_mode_fb_cmd2 *mode_cmd);
+#endif
 
 int evdi_dumb_create(struct drm_file *file_priv,
 		     struct drm_device *dev, struct drm_mode_create_dumb *args);
@@ -97,6 +108,9 @@ int evdi_gem_mmap(struct drm_file *file_priv,
 void evdi_gem_free_object(struct drm_gem_object *gem_obj);
 struct evdi_gem_object *evdi_gem_alloc_object(struct drm_device *dev,
 					      size_t size);
+uint32_t evdi_gem_object_handle_lookup(struct drm_file *filp,
+				      struct drm_gem_object *obj);
+
 struct drm_gem_object *evdi_gem_prime_import(struct drm_device *dev,
 					     struct dma_buf *dma_buf);
 struct dma_buf *evdi_gem_prime_export(struct drm_device *dev,
@@ -106,7 +120,11 @@ int evdi_gem_vmap(struct evdi_gem_object *obj);
 void evdi_gem_vunmap(struct evdi_gem_object *obj);
 int evdi_drm_gem_mmap(struct file *filp, struct vm_area_struct *vma);
 
+#if KERNEL_VERSION(4, 11, 0) > LINUX_VERSION_CODE
+int evdi_gem_fault(struct vm_area_struct *vma, struct vm_fault *vmf);
+#else
 int evdi_gem_fault(struct vm_fault *vmf);
+#endif
 
 void evdi_stats_init(struct evdi_device *evdi);
 void evdi_stats_cleanup(struct evdi_device *evdi);
@@ -145,4 +163,10 @@ struct drm_clip_rect evdi_framebuffer_sanitize_rect(
 
 int evdi_driver_setup_early(struct drm_device *dev);
 void evdi_driver_setup_late(struct drm_device *dev);
+
+void evdi_painter_send_cursor_set(struct evdi_painter *painter,
+				  struct evdi_cursor *cursor);
+void evdi_painter_send_cursor_move(struct evdi_painter *painter,
+				   struct evdi_cursor *cursor);
+int evdi_fb_get_bpp(uint32_t format);
 #endif
