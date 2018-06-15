@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (C) 2012 Red Hat
  * Copyright (c) 2015 - 2017 DisplayLink (UK) Ltd.
@@ -14,6 +15,7 @@
 #include <drm/drm_crtc.h>
 #include <drm/drm_edid.h>
 #include <drm/drm_crtc_helper.h>
+#include <linux/version.h>
 #include "evdi_drv.h"
 
 /*
@@ -44,7 +46,7 @@ static int evdi_get_modes(struct drm_connector *connector)
 	return ret;
 }
 
-static int evdi_mode_valid(struct drm_connector *connector,
+static enum drm_mode_status evdi_mode_valid(struct drm_connector *connector,
 			   struct drm_display_mode *mode)
 {
 	struct evdi_device *evdi = connector->dev->dev_private;
@@ -82,17 +84,12 @@ static struct drm_encoder *evdi_best_single_encoder(struct drm_connector
 						    *connector)
 {
 	int enc_id = connector->encoder_ids[0];
-	struct drm_mode_object *obj;
-	struct drm_encoder *encoder;
 
-	obj =
-	    drm_mode_object_find(connector->dev, enc_id,
-				 DRM_MODE_OBJECT_ENCODER);
-	if (!obj)
-		return NULL;
-
-	encoder = obj_to_encoder(obj);
-	return encoder;
+	return drm_encoder_find(connector->dev,
+#if KERNEL_VERSION(4, 15, 0) <= LINUX_VERSION_CODE
+				 NULL,
+#endif
+				 enc_id);
 }
 
 static int evdi_connector_set_property(
@@ -105,7 +102,11 @@ static int evdi_connector_set_property(
 
 static void evdi_connector_destroy(struct drm_connector *connector)
 {
+#if KERNEL_VERSION(3, 17, 0) <= LINUX_VERSION_CODE
 	drm_connector_unregister(connector);
+#else
+	drm_sysfs_connector_remove(connector);
+#endif
 	drm_connector_cleanup(connector);
 	kfree(connector);
 }
@@ -138,8 +139,17 @@ int evdi_connector_init(struct drm_device *dev, struct drm_encoder *encoder)
 	drm_connector_helper_add(connector, &evdi_connector_helper_funcs);
 	connector->polled = DRM_CONNECTOR_POLL_HPD;
 
+#if KERNEL_VERSION(3, 17, 0) <= LINUX_VERSION_CODE
 	drm_connector_register(connector);
+#else
+	drm_sysfs_connector_add(connector);
+#endif
 	drm_mode_connector_attach_encoder(connector, encoder);
+
+#if KERNEL_VERSION(4, 9, 0) > LINUX_VERSION_CODE
+	drm_object_attach_property(&connector->base,
+				   dev->mode_config.dirty_info_property, 1);
+#endif
 
 	return 0;
 }
