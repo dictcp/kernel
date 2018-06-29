@@ -46,19 +46,34 @@ struct backlight_connector {
 	int id;
 };
 
-static bool
-nouveau_get_backlight_name(char backlight_name[BL_NAME_SIZE], struct backlight_connector
-		*connector)
+static struct backlight_connector *
+nouveau_get_backlight_name(char backlight_name[BL_NAME_SIZE])
 {
 	const int nb = ida_simple_get(&bl_ida, 0, 0, GFP_KERNEL);
+	struct backlight_connector *bl_connector;
+
 	if (nb < 0 || nb >= 100)
-		return false;
+		return NULL;
+		bl_connector = kzalloc(sizeof(*bl_connector), GFP_KERNEL);
+	if (!bl_connector) {
+		ida_simple_remove(&bl_ida, nb);
+		return NULL;
+	}
+
 	if (nb > 0)
 		snprintf(backlight_name, BL_NAME_SIZE, "nv_backlight%d", nb);
 	else
 		snprintf(backlight_name, BL_NAME_SIZE, "nv_backlight");
-	connector->id = nb;
-	return true;
+	bl_connector->id = nb;
+	return bl_connector;
+}
+
+static void
+nouveau_free_bl_connector(struct backlight_connector *bl_connector)
+{
+	if (bl_connector->id > 0)
+		ida_simple_remove(&bl_ida, bl_connector->id);
+	kfree(bl_connector);
 }
 
 static int
@@ -99,7 +114,7 @@ nv40_backlight_init(struct drm_connector *connector)
 	struct nvif_object *device = &drm->client.device.object;
 	struct backlight_properties props;
 	struct backlight_device *bd;
-	struct backlight_connector bl_connector;
+	struct backlight_connector *bl_connector;
 	char backlight_name[BL_NAME_SIZE];
 
 	if (!(nvif_rd32(device, NV40_PMC_BACKLIGHT) & NV40_PMC_BACKLIGHT_MASK))
@@ -108,7 +123,8 @@ nv40_backlight_init(struct drm_connector *connector)
 	memset(&props, 0, sizeof(struct backlight_properties));
 	props.type = BACKLIGHT_RAW;
 	props.max_brightness = 31;
-	if (!nouveau_get_backlight_name(backlight_name, &bl_connector)) {
+	bl_connector = nouveau_get_backlight_name(backlight_name);
+	if (!bl_connector) {
 		NV_ERROR(drm, "Failed to retrieve a unique name for the backlight interface\n");
 		return 0;
 	}
@@ -116,11 +132,10 @@ nv40_backlight_init(struct drm_connector *connector)
 				       &nv40_bl_ops, &props);
 
 	if (IS_ERR(bd)) {
-		if (bl_connector.id > 0)
-			ida_simple_remove(&bl_ida, bl_connector.id);
+		nouveau_free_bl_connector(bl_connector);
 		return PTR_ERR(bd);
 	}
-	list_add(&bl_connector.head, &drm->bl_connectors);
+	list_add(&bl_connector->head, &drm->bl_connectors);
 	drm->backlight = bd;
 	bd->props.brightness = nv40_get_intensity(bd);
 	backlight_update_status(bd);
@@ -281,7 +296,7 @@ nv50_backlight_init(struct drm_connector *connector)
 	struct backlight_properties props;
 	struct backlight_device *bd;
 	const struct backlight_ops *ops;
-	struct backlight_connector bl_connector;
+	struct backlight_connector *bl_connector;
 	char backlight_name[BL_NAME_SIZE];
 	int max_brightness = 100;
 
@@ -315,7 +330,8 @@ nv50_backlight_init(struct drm_connector *connector)
 	memset(&props, 0, sizeof(struct backlight_properties));
 	props.type = BACKLIGHT_RAW;
 	props.max_brightness = max_brightness;
-	if (!nouveau_get_backlight_name(backlight_name, &bl_connector)) {
+	bl_connector = nouveau_get_backlight_name(backlight_name);
+	if (!bl_connector) {
 		NV_ERROR(drm, "Failed to retrieve a unique name for the backlight interface\n");
 		return 0;
 	}
@@ -323,12 +339,11 @@ nv50_backlight_init(struct drm_connector *connector)
 				       nv_encoder, ops, &props);
 
 	if (IS_ERR(bd)) {
-		if (bl_connector.id > 0)
-			ida_simple_remove(&bl_ida, bl_connector.id);
+		nouveau_free_bl_connector(bl_connector);
 		return PTR_ERR(bd);
 	}
 
-	list_add(&bl_connector.head, &drm->bl_connectors);
+	list_add(&bl_connector->head, &drm->bl_connectors);
 	drm->backlight = bd;
 	bd->props.brightness = bd->ops->get_brightness(bd);
 	backlight_update_status(bd);
@@ -376,10 +391,10 @@ nouveau_backlight_exit(struct drm_device *dev)
 {
 	struct nouveau_drm *drm = nouveau_drm(dev);
 	struct backlight_connector *connector;
+	struct backlight_connector *safe;
 
-	list_for_each_entry(connector, &drm->bl_connectors, head) {
-		if (connector->id >= 0)
-			ida_simple_remove(&bl_ida, connector->id);
+	list_for_each_entry_safe(connector, safe, &drm->bl_connectors, head) {
+		nouveau_free_bl_connector(connector);
 	}
 
 	if (drm->backlight) {
