@@ -135,6 +135,7 @@ nv40_backlight_init(struct drm_connector *connector)
 		nouveau_free_bl_connector(bl_connector);
 		return PTR_ERR(bd);
 	}
+	printk(KERN_INFO "JAM: backlight_connector add . %p\n", bl_connector);
 	list_add(&bl_connector->head, &drm->bl_connectors);
 	drm->backlight = bd;
 	bd->props.brightness = nv40_get_intensity(bd);
@@ -343,6 +344,7 @@ nv50_backlight_init(struct drm_connector *connector)
 		return PTR_ERR(bd);
 	}
 
+	printk(KERN_INFO "JAM: backlight_connector add . %p\n", bl_connector);
 	list_add(&bl_connector->head, &drm->bl_connectors);
 	drm->backlight = bd;
 	bd->props.brightness = bd->ops->get_brightness(bd);
@@ -393,7 +395,9 @@ nouveau_backlight_exit(struct drm_device *dev)
 	struct backlight_connector *connector;
 	struct backlight_connector *safe;
 
+	printk(KERN_INFO "JAM: backlight_exit called.\n");
 	list_for_each_entry_safe(connector, safe, &drm->bl_connectors, head) {
+		printk(KERN_INFO "JAM: backlight_exit freeing. %p\n", connector);
 		nouveau_free_bl_connector(connector);
 	}
 
