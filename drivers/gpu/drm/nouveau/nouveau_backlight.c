@@ -54,7 +54,7 @@ nouveau_get_backlight_name(char backlight_name[BL_NAME_SIZE])
 
 	if (nb < 0 || nb >= 100)
 		return NULL;
-		bl_connector = kzalloc(sizeof(*bl_connector), GFP_KERNEL);
+	bl_connector = kzalloc(sizeof(*bl_connector), GFP_KERNEL);
 	if (!bl_connector) {
 		ida_simple_remove(&bl_ida, nb);
 		return NULL;
