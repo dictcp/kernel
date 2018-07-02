@@ -805,9 +805,27 @@ static const struct dmi_system_id kempld_dmi_table[] __initconst = {
 };
 MODULE_DEVICE_TABLE(dmi, kempld_dmi_table);
 
+static const struct dmi_system_id kempld_dmi_disabled_table[] __initconst = {
+	{
+		.ident = "ELO",
+		.matches = {
+			DMI_MATCH(DMI_BOARD_VENDOR, "Kontron"),
+			DMI_MATCH(DMI_BOARD_NAME, "COMe-bSC2"),
+			DMI_MATCH(DMI_PRODUCT_NAME, "Elo 19M2 Rev A"),
+			DMI_MATCH(DMI_PRODUCT_FAMILY, "M-Series AiO (VuPoint)"),
+		},
+	},
+	{}
+};
+
 static int __init kempld_init(void)
 {
 	const struct dmi_system_id *id;
+
+	if (dmi_check_system(kempld_dmi_disabled_table)) {
+		printk(KERN_WARNING, "kempld_core: Neverware: disabling kempld_core due to hardware match.\n");
+		return -ENODEV;
+	}
 
 	if (force_device_id[0]) {
 		for (id = kempld_dmi_table;
