@@ -805,9 +805,13 @@ static const struct dmi_system_id kempld_dmi_table[] __initconst = {
 };
 MODULE_DEVICE_TABLE(dmi, kempld_dmi_table);
 
+// OVER-6703
+// Disable the kempld_core module for some machines.
 static const struct dmi_system_id kempld_dmi_disabled_table[] __initconst = {
 	{
-		.ident = "ELO",
+		// The ELO VuPoint 15MX can't load the i2c_kempld driver when livebooting,
+		// causing `udevadm settle` to fail to complete. Avoid loading it ever.
+		.ident = "ELO VuPoint 15MX",
 		.matches = {
 			DMI_MATCH(DMI_BOARD_VENDOR, "Kontron"),
 			DMI_MATCH(DMI_BOARD_NAME, "COMe-bSC2"),
