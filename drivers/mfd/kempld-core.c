@@ -825,11 +825,6 @@ static int __init kempld_init(void)
 {
 	const struct dmi_system_id *id;
 
-	if (dmi_check_system(kempld_dmi_disabled_table)) {
-		printk(KERN_WARNING, "kempld_core: Neverware: disabling kempld_core due to hardware match.\n");
-		return -ENODEV;
-	}
-
 	if (force_device_id[0]) {
 		for (id = kempld_dmi_table;
 		     id->matches[0].slot != DMI_NONE; id++)
@@ -839,6 +834,10 @@ static int __init kempld_init(void)
 		if (id->matches[0].slot == DMI_NONE)
 			return -ENODEV;
 	} else {
+		if (dmi_check_system(kempld_dmi_disabled_table)) {
+			printk(KERN_WARNING, "kempld_core: Neverware: disabling kempld_core due to hardware match.\n");
+			return -ENODEV;
+		}
 		if (!dmi_check_system(kempld_dmi_table))
 			return -ENODEV;
 	}
