@@ -423,12 +423,15 @@ nouveau_fbcon_output_poll_changed(struct drm_device *dev)
 static int
 nouveau_fbcon_destroy(struct drm_device *dev, struct nouveau_fbdev *fbcon)
 {
-	struct nouveau_framebuffer *nouveau_fb = nouveau_framebuffer(fbcon->helper.fb);
+	struct nouveau_framebuffer *nouveau_fb = NULL;
+
+	if (fbcon->helper.fb)
+		nouveau_fb = nouveau_framebuffer(fbcon->helper.fb);
 
 	drm_fb_helper_unregister_fbi(&fbcon->helper);
 	drm_fb_helper_fini(&fbcon->helper);
 
-	if (nouveau_fb->nvbo) {
+	if (nouveau_fb && nouveau_fb->nvbo) {
 		nouveau_bo_vma_del(nouveau_fb->nvbo, &nouveau_fb->vma);
 		nouveau_bo_unmap(nouveau_fb->nvbo);
 		nouveau_bo_unpin(nouveau_fb->nvbo);
