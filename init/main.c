@@ -88,6 +88,7 @@
 #include <linux/io.h>
 #include <linux/cache.h>
 #include <linux/rodata_test.h>
+#include <linux/dmi.h>
 
 #include <asm/io.h>
 #include <asm/bugs.h>
@@ -675,6 +676,13 @@ asmlinkage __visible void __init start_kernel(void)
 	anon_vma_init();
 	acpi_early_init();
 #ifdef CONFIG_X86
+	/* OVER-6986 Runtime services can panic on the T430. */
+	if (efi_enabled(EFI_RUNTIME_SERVICES) &&
+			dmi_match(DMI_PRODUCT_FAMILY, "ThinkPad T430"))
+	{
+		pr_info("EFI: Disable runtime services on buggy firmware.");
+		clear_bit(EFI_RUNTIME_SERVICES, &efi.flags);
+	}
 	if (efi_enabled(EFI_RUNTIME_SERVICES))
 		efi_enter_virtual_mode();
 #endif
