@@ -836,7 +836,7 @@ static int __init kempld_init(void)
 			return -ENODEV;
 	} else {
 		if (dmi_check_system(kempld_dmi_disabled_table)) {
-			printk(KERN_WARNING, "kempld_core: Neverware: disabling kempld_core due to hardware match.\n");
+			printk(KERN_WARNING "kempld_core: Neverware: disabling kempld_core due to hardware match.\n");
 			return -ENODEV;
 		}
 		if (!dmi_check_system(kempld_dmi_table))
