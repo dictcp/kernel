@@ -217,6 +217,14 @@ void radeon_crtc_load_lut(struct drm_crtc *crtc)
 	if (!crtc->enabled)
 		return;
 
+	/* Neverware: disable the color-management LUT on AMD Caicos. This
+	 * fixes psychedelic colors on boot.
+	 *
+	 * According to Wikipedia, the only Caicos product is the Radeon
+	 * HD 6450. [OVER-7402] */
+	if (rdev->family == CHIP_CAICOS)
+		return;
+
 	if (ASIC_IS_DCE5(rdev))
 		dce5_crtc_load_lut(crtc);
 	else if (ASIC_IS_DCE4(rdev))
