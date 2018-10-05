@@ -146,6 +146,14 @@ static void dce5_crtc_load_lut(struct drm_crtc *crtc)
 	WREG32(EVERGREEN_DC_LUT_WRITE_EN_MASK + radeon_crtc->crtc_offset, 0x00000007);
 
 	WREG32(EVERGREEN_DC_LUT_RW_INDEX + radeon_crtc->crtc_offset, 0);
+
+	/* Neverware: delay for a bit on AMD Caicos. This fixes
+	 * psychedelic colors on boot and after resume.
+	 *
+	 * [OVER-7402] */
+	if (rdev->family == CHIP_CAICOS)
+		udelay(50);
+
 	r = crtc->gamma_store;
 	g = r + crtc->gamma_size;
 	b = g + crtc->gamma_size;
@@ -215,14 +223,6 @@ void radeon_crtc_load_lut(struct drm_crtc *crtc)
 	struct radeon_device *rdev = dev->dev_private;
 
 	if (!crtc->enabled)
-		return;
-
-	/* Neverware: disable the color-management LUT on AMD Caicos. This
-	 * fixes psychedelic colors on boot.
-	 *
-	 * According to Wikipedia, the only Caicos product is the Radeon
-	 * HD 6450. [OVER-7402] */
-	if (rdev->family == CHIP_CAICOS)
 		return;
 
 	if (ASIC_IS_DCE5(rdev))
