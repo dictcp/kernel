@@ -338,6 +338,10 @@ struct hid_item {
 #define HID_QUIRK_NO_EMPTY_INPUT		0x00000100
 /* 0x00000200 reserved for backward compatibility, was NO_INIT_INPUT_REPORTS */
 #define HID_QUIRK_ALWAYS_POLL			0x00000400
+
+/* Neverware: added quirk for devices that need usb_init_report run [OVER-7513] */
+#define HID_QUIRK_ALWAYS_INIT_REPORT		0x00000800
+
 #define HID_QUIRK_NO_PEN			0x00008000
 #define HID_QUIRK_SKIP_OUTPUT_REPORTS		0x00010000
 #define HID_QUIRK_SKIP_OUTPUT_REPORT_ID		0x00020000
