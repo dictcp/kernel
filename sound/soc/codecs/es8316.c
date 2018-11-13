@@ -654,7 +654,14 @@ static const struct regmap_config es8316_regmap = {
 static const struct dmi_system_id hpdet_inverted_flag[] = {
 #if defined(CONFIG_DMI) && defined(CONFIG_X86)
 	{
-		.ident = "Classbook14",
+		.ident = "Chuwi Hi12",
+		.matches = {
+			DMI_MATCH(DMI_BOARD_VENDOR, "Hampoo"),
+			DMI_MATCH(DMI_BOARD_NAME, "Cherry Trail CR")
+		}
+	},
+	{
+		.ident = "Avantis Classbook14",
 		.matches = {
 			DMI_MATCH(DMI_BOARD_VENDOR, "Insyde"),
 			DMI_MATCH(DMI_BOARD_NAME, "Cherry Trail CR")
