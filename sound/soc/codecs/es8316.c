@@ -539,7 +539,7 @@ static struct snd_soc_dai_driver es8316_dai = {
 	.symmetric_rates = 1,
 };
 
-//FIXME: do proper impl via alsa-jack in machine driver
+/* FIXME: do proper impl via alsa-jack in machine driver*/
 static void es8316_sync_spk_status(struct snd_soc_codec *codec)
 {
 	struct es8316_priv *es8316 = snd_soc_codec_get_drvdata(codec);
@@ -588,19 +588,24 @@ static int es8316_probe(struct snd_soc_codec *codec)
 		es8316_sync_spk_status(codec);
 
 		error = devm_request_threaded_irq(codec->dev, es8316->hp_irq,
-				NULL, es8316_irq_handler,
-				irq_get_trigger_type(es8316->hp_irq) | IRQF_ONESHOT,
-				"ES8316", codec);
+			NULL, es8316_irq_handler,
+			irq_get_trigger_type(es8316->hp_irq) | IRQF_ONESHOT,
+			"ES8316", codec);
 		if (error) {
-			dev_err(codec->dev, "Failed to acquire HP-DET IRQ#%u with trigType %u: %d\n",
-					es8316->hp_irq, irq_get_trigger_type(es8316->hp_irq), error);
+			dev_err(codec->dev,
+				"Failed to acquire HP-DET IRQ#%u with trigType
+				%u: %d\n",
+				es8316->hp_irq,
+				irq_get_trigger_type(es8316->hp_irq), error);
 			return error;
 		}
 
-		//according to my tests on Hi12, minimal debounce intervals are just fine
+		/* according to my tests on Hi12, minimal debounce intervals are
+		 * just fine*/
 		error = snd_soc_write(codec, ES8316_GPIO_DEBOUNCE, 0x02);
 		if (error) {
-			dev_err(codec->dev, "Failed to enable HP-DET interrupt: %d\n", error);
+			dev_err(codec->dev, "Failed to enable HP-DET interrupt:
+				%d\n", error);
 			return error;
 		}
 	}
@@ -613,8 +618,10 @@ static int es8316_remove(struct snd_soc_codec *codec)
 	struct es8316_priv *es8316 = snd_soc_codec_get_drvdata(codec);
 
 	if (es8316->hp_irq && es8316->gpiod_spken) {
-		/* It is necessary to disable HP interrupt, otherwise the chip may get stuck
-		 * with int pin held HI in case HP event occur while the driver is unloaded,
+		/* It is necessary to disable HP interrupt,
+		 * otherwise the chip may get stuck
+		 * with int pin held HI in case HP event
+		 *  occur while the driver is unloaded,
 		 * and so remain unhandled (no following reg read) */
 		snd_soc_write(codec, ES8316_GPIO_DEBOUNCE, 0x00);
 		devm_free_irq(codec->dev, es8316->hp_irq, codec);
@@ -654,7 +661,8 @@ static const struct regmap_config es8316_regmap = {
 };
 
 
-//It seems that Hi12 uses non-reference HP-det circuit, so that HPINS=1 means not inserted
+/* It seems that Hi12 uses non-reference HP-det circuit, so that HPINS=1
+ * means not inserted*/
 static const struct dmi_system_id hpdet_inverted_flag[] = {
 #if defined(CONFIG_DMI) && defined(CONFIG_X86)
 	{
@@ -709,7 +717,8 @@ static int es8316_i2c_probe(struct i2c_client *i2c_client,
 
 	/* Requesting ASIS as additional safety measure, see direction checks below
 	 * As of now I have ACPI tables for only 2 devices employing this codec */
-	es8316->gpiod_spken = devm_gpiod_get_optional(&i2c_client->dev, "spken", GPIOD_ASIS);
+	es8316->gpiod_spken = devm_gpiod_get_optional(&i2c_client->dev,
+							"spken", GPIOD_ASIS);
 	if (IS_ERR(es8316->gpiod_spken)) {
 		error = PTR_ERR(es8316->gpiod_spken);
 		dev_err(&i2c_client->dev, "Failed to get SPK-EN GPIO: %d\n", error);
@@ -733,7 +742,8 @@ static int es8316_i2c_probe(struct i2c_client *i2c_client,
 
 		es8316->hp_irq = i2c_client->irq;
 		es8316->hpdet_inv_flag = !!dmi_check_system(hpdet_inverted_flag);
-		dev_info(&i2c_client->dev, "Successfully aquired gpios. HPIns flag inverted: %d\n", es8316->hpdet_inv_flag);
+		dev_info(&i2c_client->dev, "Successfully aquired gpios.
+			HPIns flag inverted:%d\n", es8316->hpdet_inv_flag);
 
 		goto finalize;
 	}
