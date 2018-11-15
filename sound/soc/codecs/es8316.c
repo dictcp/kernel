@@ -10,8 +10,6 @@
  * published by the Free Software Foundation.
  */
 
-#define DEBUG
-
 #include <linux/module.h>
 #include <linux/acpi.h>
 #include <linux/delay.h>
@@ -27,6 +25,7 @@
 
 #include <linux/dmi.h>
 #include <linux/gpio/consumer.h>
+#include <linux/irq.h>
 
 /* In slave mode at single speed, the codec is documented as accepting 5
  * MCLK/LRCK ratios, but we also add ratio 400, which is commonly used on
@@ -547,9 +546,12 @@ static void es8316_sync_spk_status(struct snd_soc_codec *codec)
 	unsigned int data;
 
 	data = snd_soc_read(codec, ES8316_GPIO_FLAG);
-	dev_info(codec->dev, "Status: %u / HPIns %u / GMShrt %u / OUT: %d\n", data, !!(data & BIT(2)), !!(data & BIT(1)), !(!!(data & BIT(2)) ^ es8316->hpdet_inv_flag));
+	dev_info(codec->dev, "Status: %u / HPIns %u / GMShrt %u / OUT: %d\n",
+			data, !!(data & BIT(2)), !!(data & BIT(1)),
+			!(!!(data & BIT(2)) ^ es8316->hpdet_inv_flag));
 
-	gpiod_set_value(es8316->gpiod_spken, !(!!(data & BIT(2)) ^ es8316->hpdet_inv_flag));
+	gpiod_set_value(es8316->gpiod_spken,
+			!(!!(data & BIT(2)) ^ es8316->hpdet_inv_flag));
 }
 
 static irqreturn_t es8316_irq_handler(int irq, void *dev_id)
@@ -585,11 +587,13 @@ static int es8316_probe(struct snd_soc_codec *codec)
 	if (es8316->hp_irq && es8316->gpiod_spken) {
 		es8316_sync_spk_status(codec);
 
-		error = devm_request_threaded_irq(codec->dev, es8316->hp_irq, NULL, es8316_irq_handler,
-					 								irq_get_trigger_type(es8316->hp_irq) | IRQF_ONESHOT, 
-					 								"ES8316", codec);
+		error = devm_request_threaded_irq(codec->dev, es8316->hp_irq,
+				NULL, es8316_irq_handler,
+				irq_get_trigger_type(es8316->hp_irq) | IRQF_ONESHOT,
+				"ES8316", codec);
 		if (error) {
-			dev_err(codec->dev, "Failed to acquire HP-DET IRQ#%u with trigType %u: %d\n", es8316->hp_irq, irq_get_trigger_type(es8316->hp_irq), error);
+			dev_err(codec->dev, "Failed to acquire HP-DET IRQ#%u with trigType %u: %d\n",
+					es8316->hp_irq, irq_get_trigger_type(es8316->hp_irq), error);
 			return error;
 		}
 
@@ -609,8 +613,9 @@ static int es8316_remove(struct snd_soc_codec *codec)
 	struct es8316_priv *es8316 = snd_soc_codec_get_drvdata(codec);
 
 	if (es8316->hp_irq && es8316->gpiod_spken) {
-		/* It is necessary to disable HP interrupt, otherwise the chip may get stuck with int pin held HI
-		 * in case HP event occur while the driver is unloaded, and so remain unhandled (no following reg read) */
+		/* It is necessary to disable HP interrupt, otherwise the chip may get stuck
+		 * with int pin held HI in case HP event occur while the driver is unloaded,
+		 * and so remain unhandled (no following reg read) */
 		snd_soc_write(codec, ES8316_GPIO_DEBOUNCE, 0x00);
 		devm_free_irq(codec->dev, es8316->hp_irq, codec);
 		gpiod_set_value(es8316->gpiod_spken, 0);
@@ -659,6 +664,13 @@ static const struct dmi_system_id hpdet_inverted_flag[] = {
 			DMI_MATCH(DMI_BOARD_NAME, "Cherry Trail CR")
 		}
 	},
+	{
+		.ident = "Avantis Classbook14",
+		.matches = {
+			DMI_MATCH(DMI_BOARD_VENDOR, "Insyde"),
+			DMI_MATCH(DMI_BOARD_NAME, "Cherry Trail CR")
+		}
+	},
 #endif
 	{}
 };
@@ -671,7 +683,8 @@ static const struct acpi_gpio_mapping es8316_gpios_map[] = {
 	{ },
 };
 
-static int es8316_i2c_probe(struct i2c_client *i2c_client)
+static int es8316_i2c_probe(struct i2c_client *i2c_client,
+			    const struct i2c_device_id *id)
 {
 	struct es8316_priv *es8316;
 	struct regmap *regmap;
@@ -728,7 +741,7 @@ static int es8316_i2c_probe(struct i2c_client *i2c_client)
 err_no_gpio:
 	dev_err(&i2c_client->dev, "HP-Det / spk-ctl gpios not available\n");
 	es8316->gpiod_spken = NULL;
-	es8316->gpiod_hpint = NULL;	
+	es8316->gpiod_hpint = NULL;
 
 finalize:
 	return snd_soc_register_codec(&i2c_client->dev, &soc_codec_dev_es8316,
@@ -765,7 +778,7 @@ static struct i2c_driver es8316_i2c_driver = {
 		.acpi_match_table	= ACPI_PTR(es8316_acpi_match),
 		.of_match_table		= of_match_ptr(es8316_of_match),
 	},
-	.probe_new	= es8316_i2c_probe,
+	.probe		= es8316_i2c_probe,
 	.remove		= es8316_i2c_remove,
 	.id_table	= es8316_i2c_id,
 };
