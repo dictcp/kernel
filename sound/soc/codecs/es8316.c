@@ -593,19 +593,18 @@ static int es8316_probe(struct snd_soc_codec *codec)
 			"ES8316", codec);
 		if (error) {
 			dev_err(codec->dev,
-				"Failed to acquire HP-DET IRQ#%u with trigType
-				%u: %d\n",
+				"Failed to acquire HP-DET IRQ#%u with trigType%u: %d\n",
 				es8316->hp_irq,
 				irq_get_trigger_type(es8316->hp_irq), error);
 			return error;
 		}
 
 		/* according to my tests on Hi12, minimal debounce intervals are
-		 * just fine*/
+		  just fine*/
 		error = snd_soc_write(codec, ES8316_GPIO_DEBOUNCE, 0x02);
 		if (error) {
-			dev_err(codec->dev, "Failed to enable HP-DET interrupt:
-				%d\n", error);
+			dev_err(codec->dev, "Failed to enable HP-DET interrupt:%d\n",
+			error);
 			return error;
 		}
 	}
@@ -621,8 +620,9 @@ static int es8316_remove(struct snd_soc_codec *codec)
 		/* It is necessary to disable HP interrupt,
 		 * otherwise the chip may get stuck
 		 * with int pin held HI in case HP event
-		 *  occur while the driver is unloaded,
-		 * and so remain unhandled (no following reg read) */
+		 * occur while the driver is unloaded,
+		 * and so remain unhandled (no following reg read)
+		 */
 		snd_soc_write(codec, ES8316_GPIO_DEBOUNCE, 0x00);
 		devm_free_irq(codec->dev, es8316->hp_irq, codec);
 		gpiod_set_value(es8316->gpiod_spken, 0);
@@ -742,8 +742,9 @@ static int es8316_i2c_probe(struct i2c_client *i2c_client,
 
 		es8316->hp_irq = i2c_client->irq;
 		es8316->hpdet_inv_flag = !!dmi_check_system(hpdet_inverted_flag);
-		dev_info(&i2c_client->dev, "Successfully aquired gpios.
-			HPIns flag inverted:%d\n", es8316->hpdet_inv_flag);
+		dev_info(&i2c_client->dev,
+		"Successfully aquired gpios. HPIns flag inverted:%d\n",
+		es8316->hpdet_inv_flag);
 
 		goto finalize;
 	}
