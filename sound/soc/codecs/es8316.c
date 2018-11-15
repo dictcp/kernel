@@ -600,7 +600,8 @@ static int es8316_probe(struct snd_soc_codec *codec)
 		}
 
 		/* according to my tests on Hi12, minimal debounce intervals are
-		  just fine*/
+		 * just fine
+		 */
 		error = snd_soc_write(codec, ES8316_GPIO_DEBOUNCE, 0x02);
 		if (error) {
 			dev_err(codec->dev, "Failed to enable HP-DET interrupt:%d\n",
