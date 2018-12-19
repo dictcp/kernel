@@ -1564,6 +1564,7 @@ static const struct dmi_system_id synaptics_rmi4_enable[] __initconst = {
 	.matches = {
 	    DMI_MATCH(DMI_PRODUCT_VERSION, "ThinkPad X1 Yoga 3rd"),
 	},
+    },
 #endif
     { }
 };
@@ -1574,7 +1575,7 @@ void __init synaptics_module_init(void)
 	broken_olpc_ec = dmi_check_system(olpc_dmi_table);
 	cr48_profile_sensor = dmi_check_system(cr48_dmi_table);
 	broken_synaptics_rmi4 =
-		dmi_check_system(synaptics_rmi4_disable &&
+		dmi_check_system(synaptics_rmi4_disable) &&
 		!dmi_check_system(synaptics_rmi4_enable);
 }
 
