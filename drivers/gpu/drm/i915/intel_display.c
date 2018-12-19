@@ -15148,10 +15148,8 @@ intel_modeset_setup_hw_state(struct drm_device *dev,
 	/* HW state is read out, now we need to sanitize this mess. */
 	get_encoder_power_domains(dev_priv);
 
-<<<<<<< HEAD
 	for_each_intel_encoder(dev, encoder) {
 		intel_sanitize_encoder(encoder);
-=======
 	/*
 	 * intel_sanitize_plane_mapping() may need to do vblank
 	 * waits, so we need vblank interrupts restored beforehand.
@@ -15161,7 +15159,6 @@ intel_modeset_setup_hw_state(struct drm_device *dev,
 
 		if (crtc->active)
 			drm_crtc_vblank_on(&crtc->base);
->>>>>>> v4.14.86
 	}
 
 	intel_sanitize_plane_mapping(dev_priv);

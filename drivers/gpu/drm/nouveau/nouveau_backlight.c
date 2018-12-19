@@ -140,12 +140,7 @@ nv40_backlight_init(struct drm_connector *connector)
 				       &nv40_bl_ops, &props);
 
 	if (IS_ERR(bd)) {
-<<<<<<< HEAD
 		nouveau_free_bl_connector(bl_connector);
-=======
-		if (bl_connector.id >= 0)
-			ida_simple_remove(&bl_ida, bl_connector.id);
->>>>>>> v4.14.86
 		return PTR_ERR(bd);
 	}
 	list_add(&bl_connector->head, &drm->bl_connectors);
@@ -354,12 +349,7 @@ nv50_backlight_init(struct drm_connector *connector)
 				       nv_encoder, ops, &props);
 
 	if (IS_ERR(bd)) {
-<<<<<<< HEAD
 		nouveau_free_bl_connector(bl_connector);
-=======
-		if (bl_connector.id >= 0)
-			ida_simple_remove(&bl_ida, bl_connector.id);
->>>>>>> v4.14.86
 		return PTR_ERR(bd);
 	}
 
