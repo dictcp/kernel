@@ -1577,7 +1577,7 @@ void __init synaptics_module_init(void)
 	broken_olpc_ec = dmi_check_system(olpc_dmi_table);
 	cr48_profile_sensor = dmi_check_system(cr48_dmi_table);
 	broken_synaptics_rmi4 =
-		dmi_check_system(synaptics_rmi4_disable &&
+		dmi_check_system(synaptics_rmi4_disable) &&
 		!dmi_check_system(synaptics_rmi4_enable);
 }
 
