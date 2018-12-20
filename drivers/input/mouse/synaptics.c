@@ -1529,11 +1529,10 @@ static bool broken_synaptics_rmi4;
 static const struct dmi_system_id synaptics_rmi4_disable[] __initconst = {
 #if defined(CONFIG_DMI)
 	{
-	.ident = "Lenovo",
-	.matches = {
-	    DMI_MATCH(DMI_SYS_VENDOR, "LENOVO"),
+		.matches = {
+			DMI_MATCH(DMI_SYS_VENDOR, "LENOVO"),
+		},
 	},
-},
 #endif
 	{ }
 };
@@ -1547,13 +1546,12 @@ static const struct dmi_system_id synaptics_rmi4_disable[] __initconst = {
 static const struct dmi_system_id synaptics_rmi4_enable[] __initconst = {
 #if defined(CONFIG_DMI)
 	{
-	.ident = "Lenovo",
-	.matches = {
-	    DMI_MATCH(DMI_PRODUCT_VERSION, "ThinkPad X1 Yoga 3rd"),
+		.matches = {
+			DMI_MATCH(DMI_PRODUCT_VERSION, "ThinkPad X1 Yoga 3rd"),
+		},
 	},
-    },
 #endif
-    { }
+	{ }
 };
 
 void __init synaptics_module_init(void)
