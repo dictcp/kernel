@@ -1,4 +1,4 @@
-/*
+b*
     Dell Airplane Mode Switch driver
     Copyright (C) 2014-2015  Pali Rohár <pali.rohar@gmail.com>
 
@@ -296,20 +296,14 @@ static struct acpi_driver rbtn_driver = {
 	.name = "dell-rbtn",
 	.ids = rbtn_ids,
 	.drv.pm = &rbtn_pm_ops,
-	{ "", 0 },
-};
-
-static struct acpi_driver rbtn_driver = {
-	.name = "dell-rbtn",
-	.ids = rbtn_ids,
 	.ops = {
 		.add = rbtn_add,
 		.remove = rbtn_remove,
 		.notify = rbtn_notify,
 	},
 	.owner = THIS_MODULE,
+	{ "", 0 },
 };
-
 
 /*
  * notifier export functions
