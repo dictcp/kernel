@@ -1,4 +1,4 @@
-b*
+/*
     Dell Airplane Mode Switch driver
     Copyright (C) 2014-2015  Pali Rohár <pali.rohar@gmail.com>
 
