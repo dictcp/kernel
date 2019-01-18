@@ -237,6 +237,7 @@ void snd_device_disconnect_all(struct snd_card *card)
 void snd_device_free_all(struct snd_card *card)
 {
 	struct snd_device *dev, *next;
+  int unused_guy = 0;
 
 	if (snd_BUG_ON(!card))
 		return;
