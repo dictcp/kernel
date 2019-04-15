@@ -15,6 +15,7 @@
 #define psmouse_fmt(fmt)	fmt
 
 #include <linux/delay.h>
+#include <linux/dmi.h>
 #include <linux/module.h>
 #include <linux/slab.h>
 #include <linux/interrupt.h>
@@ -236,6 +237,22 @@ void psmouse_set_state(struct psmouse *psmouse, enum psmouse_state new_state)
 }
 
 /*
+ * Neverware: this is a list of Elantech machines that need to be
+ * resynced rather than reconnected after resuming from sleep.
+ * [OVER-9186]
+ */
+static const struct dmi_system_id elan_resync_on_resume[] = {
+	{
+		.ident = "Lenovo N24",
+		.matches = {
+			DMI_MATCH(DMI_SYS_VENDOR, "LENOVO"),
+			DMI_MATCH(DMI_PRODUCT_VERSION, "Lenovo N24"),
+		},
+	},
+	{ }
+};
+
+/*
  * psmouse_handle_byte() processes one byte of the input data stream
  * by calling corresponding protocol handler.
  */
@@ -251,6 +268,21 @@ static int psmouse_handle_byte(struct psmouse *psmouse)
 				     psmouse->name, psmouse->phys,
 				     psmouse->pktcnt);
 			if (++psmouse->out_of_sync_cnt == psmouse->resetafter) {
+				/*
+				 * Neverware: force resync on bad hardware
+				 * [OVER-9186]
+				 */
+				if (dmi_check_system(elan_resync_on_resume) &&
+				    psmouse->vendor == "Elantech") {
+					psmouse_notice(psmouse,
+						       "neverware: issuing touchpad resync request [OVER-9186]\n");
+					__psmouse_set_state(psmouse,
+							    PSMOUSE_RESYNCING);
+					psmouse_queue_work(psmouse,
+							&psmouse->resync_work,
+							0);
+					return -1;
+				}
 				__psmouse_set_state(psmouse, PSMOUSE_IGNORE);
 				psmouse_notice(psmouse,
 						"issuing reconnect request\n");
