@@ -273,7 +273,7 @@ static int psmouse_handle_byte(struct psmouse *psmouse)
 				 * [OVER-9186]
 				 */
 				if (dmi_check_system(elan_resync_on_resume) &&
-				    psmouse->vendor == "Elantech") {
+				    (!strcmp(psmouse->vendor, "Elantech"))) {
 					psmouse_notice(psmouse,
 						       "neverware: issuing touchpad resync request [OVER-9186]\n");
 					__psmouse_set_state(psmouse,
