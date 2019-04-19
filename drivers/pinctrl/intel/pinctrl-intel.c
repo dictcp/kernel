@@ -943,6 +943,7 @@ static int intel_gpio_irq_type(struct irq_data *d, unsigned type)
 {
 	struct gpio_chip *gc = irq_data_get_irq_chip_data(d);
 	struct intel_pinctrl *pctrl = gpiochip_get_data(gc);
+	int gpio_quirked = 0;
 	unsigned pin = irqd_to_hwirq(d);
 	unsigned long flags;
 	void __iomem *reg;
@@ -962,8 +963,6 @@ static int intel_gpio_irq_type(struct irq_data *d, unsigned type)
 		return -EPERM;
 	}
 
-	raw_spin_lock_irqsave(&pctrl->lock, flags);
-
 	/*
 	 * Neverware: Enter cherry-picked code branch on specific hardware
 	 *
@@ -976,10 +975,17 @@ static int intel_gpio_irq_type(struct irq_data *d, unsigned type)
 	 *
 	 * [OVER-9380]
 	 */
-	if (dmi_check_system(n24_touchscreen_gpio_quirk)) {
-		printk(KERN_WARNING "Neverware: entering quirk for Lenovo N24 touchscreen [OVER-9380]");
+	gpio_quirked = dmi_check_system(n24_touchscreen_gpio_quirk);
+	if (gpio_quirked)
+		dev_warn(pctrl->dev, "neverware: entering quirk for Lenovo N24 touchscreen [OVER-9380]");
+
+	raw_spin_lock_irqsave(&pctrl->lock, flags);
+
+	/*
+	 * [OVER-9380]
+	 */
+	if (gpio_quirked)
 		intel_gpio_set_gpio_mode(reg);
-	}
 
 	value = readl(reg);
 
