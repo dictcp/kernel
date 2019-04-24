@@ -10,6 +10,7 @@
  * published by the Free Software Foundation.
  */
 
+#include <linux/dmi.h>
 #include <linux/module.h>
 #include <linux/interrupt.h>
 #include <linux/gpio/driver.h>
@@ -915,10 +916,34 @@ static void intel_gpio_irq_unmask(struct irq_data *d)
 	intel_gpio_irq_mask_unmask(d, false);
 }
 
+/*
+ * Neverware: the Lenovo N24 needs a commit from upstream 4.16
+ * for the touchscreen to work properly:
+ *
+ * Commit f5a26acf0162477 ("pinctrl: intel: Initialize
+ * GPIO properly when used through irqchip")
+ *
+ * NOTE: This DMI match needs to be removed in 4.19, as the workaround
+ * is a standard part of this file.
+ *
+ * [OVER-9380]
+ */
+static const struct dmi_system_id n24_touchscreen_gpio_quirk[] = {
+	{
+		.ident = "Lenovo N24",
+		.matches = {
+			DMI_MATCH(DMI_SYS_VENDOR, "LENOVO"),
+			DMI_MATCH(DMI_PRODUCT_VERSION, "Lenovo N24"),
+		},
+	},
+	{ }
+};
+
 static int intel_gpio_irq_type(struct irq_data *d, unsigned type)
 {
 	struct gpio_chip *gc = irq_data_get_irq_chip_data(d);
 	struct intel_pinctrl *pctrl = gpiochip_get_data(gc);
+	int gpio_quirked = 0;
 	unsigned pin = irqd_to_hwirq(d);
 	unsigned long flags;
 	void __iomem *reg;
@@ -938,9 +963,29 @@ static int intel_gpio_irq_type(struct irq_data *d, unsigned type)
 		return -EPERM;
 	}
 
+	/*
+	 * Neverware: Enter cherry-picked code branch on specific hardware
+	 *
+	 * Cherry-pick:
+	 * Commit f5a26acf0162477 ("pinctrl: intel: Initialize
+	 * GPIO properly when used through irqchip")
+	 *
+	 * NOTE: This DMI match needs to be removed in 4.19, as the workaround
+	 * is a standard part of this file.
+	 *
+	 * [OVER-9380]
+	 */
+	gpio_quirked = dmi_check_system(n24_touchscreen_gpio_quirk);
+	if (gpio_quirked)
+		dev_warn(pctrl->dev, "neverware: entering quirk for Lenovo N24 touchscreen [OVER-9380]");
+
 	raw_spin_lock_irqsave(&pctrl->lock, flags);
 
-	intel_gpio_set_gpio_mode(reg);
+	/*
+	 * [OVER-9380]
+	 */
+	if (gpio_quirked)
+		intel_gpio_set_gpio_mode(reg);
 
 	value = readl(reg);
 
