@@ -44,6 +44,11 @@ int cirrus_gem_prime_pin(struct drm_gem_object *obj)
 	struct cirrus_bo *cirrusbo = gem_to_cirrus_bo(obj);
 	int ret = 0;
 
+	struct ttm_operation_ctx ctx = {
+		.interruptible = false,
+		.no_wait_gpu = false
+	};
+
 	ret = cirrus_bo_reserve(cirrusbo, false);
 	if (unlikely(ret != 0))
 		goto out;
@@ -52,7 +57,7 @@ int cirrus_gem_prime_pin(struct drm_gem_object *obj)
 	if (ret)
 		goto unreserve_out;
 
-	ttm_pool_populate(cirrusbo->bo.ttm);
+	ttm_pool_populate(cirrusbo->bo.ttm, &ctx);
 
 unreserve_out:
 	cirrus_bo_unreserve(cirrusbo);
