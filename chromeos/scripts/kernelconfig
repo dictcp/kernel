@@ -58,15 +58,10 @@ build_one() {
 		prefix=x86_64
 		compiler=clang
 		cross="${prefix}-cros-linux-gnu"
-	elif [[ "${arch}" == "i386" ]]; then
-		# Not really supported
-		prefix=i686
-		compiler=gcc
-		cross="${prefix}-pc-linux-gnu"
 	elif [[ "${arch}" == "armel" ]]; then
 		prefix=armv7a
 		compiler=gcc
-		cross="${prefix}-cros-linux-gnueabi"
+		cross="${prefix}-cros-linux-gnueabihf"
 	fi
 
 	set -- \
@@ -205,7 +200,7 @@ main() {
 	# Set up variables the build func expects.
 	local kerneldir=$(pwd)
 	local confdir="${kerneldir}/chromeos/config"
-	local archs=( x86_64 i386 armel arm64 )
+	local archs=( x86_64 armel arm64 )
 	local bindir="${kerneldir}/chromeos/scripts"
 	local base_conf="${confdir}/base.config"
 

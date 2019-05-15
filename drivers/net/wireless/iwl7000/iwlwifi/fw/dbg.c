@@ -967,9 +967,10 @@ _iwl_fw_error_dump(struct iwl_fw_runtime *fwrt,
 	if (fifo_len) {
 		iwl_fw_dump_rxf(fwrt, &dump_data);
 		iwl_fw_dump_txf(fwrt, &dump_data);
-		if (radio_len)
-			iwl_read_radio_regs(fwrt, &dump_data);
 	}
+
+	if (radio_len)
+		iwl_read_radio_regs(fwrt, &dump_data);
 
 	if (iwl_fw_dbg_type_on(fwrt, IWL_FW_ERROR_DUMP_ERROR_INFO) &&
 	    fwrt->dump.desc) {
@@ -1088,10 +1089,10 @@ static int iwl_dump_ini_dev_mem_iter(struct iwl_fw_runtime *fwrt,
 				     struct iwl_fw_ini_region_cfg *reg,
 				     int idx)
 {
-	u32 addr = le32_to_cpu(range->start_addr);
-	u32 offset = le32_to_cpu(reg->offset);
+	u32 addr, offset = le32_to_cpu(reg->offset);
 
 	range->start_addr = reg->start_addr[idx];
+	addr = le32_to_cpu(range->start_addr);
 	range->range_data_size = reg->internal.range_data_size;
 	iwl_trans_read_mem_bytes(fwrt->trans, addr + offset, range->data,
 				 le32_to_cpu(reg->internal.range_data_size));
