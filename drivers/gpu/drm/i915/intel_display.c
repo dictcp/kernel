@@ -5580,6 +5580,26 @@ static void intel_encoders_post_pll_disable(struct drm_crtc *crtc,
 	}
 }
 
+static void intel_encoders_update_pipe(struct drm_crtc *crtc,
+				       struct intel_crtc_state *crtc_state,
+				       struct drm_atomic_state *old_state)
+{
+	struct drm_connector_state *conn_state;
+	struct drm_connector *conn;
+	int i;
+
+	for_each_new_connector_in_state(old_state, conn, conn_state, i) {
+		struct intel_encoder *encoder =
+			to_intel_encoder(conn_state->best_encoder);
+
+		if (conn_state->crtc != crtc)
+			continue;
+
+		if (encoder->update_pipe)
+			encoder->update_pipe(encoder, crtc_state, conn_state);
+	}
+}
+
 static void ironlake_crtc_enable(struct intel_crtc_state *pipe_config,
 				 struct drm_atomic_state *old_state)
 {
@@ -6619,7 +6639,13 @@ static bool hsw_compute_ips_config(struct intel_crtc_state *crtc_state)
 	if (!hsw_crtc_state_ips_capable(crtc_state))
 		return false;
 
-	if (crtc_state->ips_force_disable)
+	/*
+	 * When IPS gets enabled, the pipe CRC changes. Since IPS gets
+	 * enabled and disabled dynamically based on package C states,
+	 * user space can't make reliable use of the CRCs, so let's just
+	 * completely disable it.
+	 */
+	if (crtc_state->crc_enabled)
 		return false;
 
 	/* IPS should be fine as long as at least one plane is enabled. */
@@ -10805,7 +10831,7 @@ static int intel_crtc_atomic_check(struct drm_crtc *crtc,
 			return ret;
 	}
 
-	if (crtc_state->color_mgmt_changed) {
+	if (pipe_config->update_pipe || crtc_state->color_mgmt_changed) {
 		ret = intel_color_check(crtc, crtc_state);
 		if (ret)
 			return ret;
@@ -11196,44 +11222,38 @@ static bool check_digital_port_conflicts(struct drm_atomic_state *state)
 	return ret;
 }
 
-static void
+static int
 clear_intel_crtc_state(struct intel_crtc_state *crtc_state)
 {
 	struct drm_i915_private *dev_priv =
 		to_i915(crtc_state->base.crtc->dev);
-	struct intel_crtc_scaler_state scaler_state;
-	struct intel_dpll_hw_state dpll_hw_state;
-	struct intel_shared_dpll *shared_dpll;
-	struct intel_crtc_wm_state wm_state;
-	bool force_thru, ips_force_disable;
+	struct intel_crtc_state *saved_state;
+
+	saved_state = kzalloc(sizeof(*saved_state), GFP_KERNEL);
+	if (!saved_state)
+		return -ENOMEM;
 
 	/* FIXME: before the switch to atomic started, a new pipe_config was
 	 * kzalloc'd. Code that depends on any field being zero should be
 	 * fixed, so that the crtc_state can be safely duplicated. For now,
 	 * only fields that are know to not cause problems are preserved. */
 
-	scaler_state = crtc_state->scaler_state;
-	shared_dpll = crtc_state->shared_dpll;
-	dpll_hw_state = crtc_state->dpll_hw_state;
-	force_thru = crtc_state->pch_pfit.force_thru;
-	ips_force_disable = crtc_state->ips_force_disable;
+	saved_state->scaler_state = crtc_state->scaler_state;
+	saved_state->shared_dpll = crtc_state->shared_dpll;
+	saved_state->dpll_hw_state = crtc_state->dpll_hw_state;
+	saved_state->pch_pfit.force_thru = crtc_state->pch_pfit.force_thru;
+	saved_state->crc_enabled = crtc_state->crc_enabled;
 	if (IS_G4X(dev_priv) ||
 	    IS_VALLEYVIEW(dev_priv) || IS_CHERRYVIEW(dev_priv))
-		wm_state = crtc_state->wm;
+		saved_state->wm = crtc_state->wm;
 
 	/* Keep base drm_crtc_state intact, only clear our extended struct */
 	BUILD_BUG_ON(offsetof(struct intel_crtc_state, base));
-	memset(&crtc_state->base + 1, 0,
+	memcpy(&crtc_state->base + 1, &saved_state->base + 1,
 	       sizeof(*crtc_state) - sizeof(crtc_state->base));
 
-	crtc_state->scaler_state = scaler_state;
-	crtc_state->shared_dpll = shared_dpll;
-	crtc_state->dpll_hw_state = dpll_hw_state;
-	crtc_state->pch_pfit.force_thru = force_thru;
-	crtc_state->ips_force_disable = ips_force_disable;
-	if (IS_G4X(dev_priv) ||
-	    IS_VALLEYVIEW(dev_priv) || IS_CHERRYVIEW(dev_priv))
-		crtc_state->wm = wm_state;
+	kfree(saved_state);
+	return 0;
 }
 
 static int
@@ -11248,7 +11268,9 @@ intel_modeset_pipe_config(struct drm_crtc *crtc,
 	int i;
 	bool retry = true;
 
-	clear_intel_crtc_state(pipe_config);
+	ret = clear_intel_crtc_state(pipe_config);
+	if (ret)
+		return ret;
 
 	pipe_config->cpu_transcoder =
 		(enum transcoder) to_intel_crtc(crtc)->pipe;
@@ -12552,6 +12574,9 @@ static void intel_update_crtc(struct drm_crtc *crtc,
 	} else {
 		intel_pre_plane_update(to_intel_crtc_state(old_crtc_state),
 				       pipe_config);
+
+		if (pipe_config->update_pipe)
+			intel_encoders_update_pipe(crtc, pipe_config, state);
 	}
 
 	if (new_plane_state)
@@ -14635,14 +14660,6 @@ static int intel_framebuffer_init(struct intel_framebuffer *intel_fb,
 		goto err;
 
 	drm_helper_mode_fill_fb_struct(&dev_priv->drm, fb, mode_cmd);
-
-	if (fb->format->format == DRM_FORMAT_NV12 &&
-	    (fb->width < SKL_MIN_YUV_420_SRC_W ||
-	     fb->height < SKL_MIN_YUV_420_SRC_H ||
-	     (fb->width % 4) != 0 || (fb->height % 4) != 0)) {
-		DRM_DEBUG_KMS("src dimensions not correct for NV12\n");
-		goto err;
-	}
 
 	for (i = 0; i < fb->format->num_planes; i++) {
 		u32 stride_alignment;

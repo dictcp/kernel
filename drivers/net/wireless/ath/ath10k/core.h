@@ -406,6 +406,14 @@ struct ath10k_peer {
 
 	/* protected by ar->data_lock */
 	struct ieee80211_key_conf *keys[WMI_MAX_KEY_INDEX + 1];
+	union htt_rx_pn_t tids_last_pn[ATH10K_TXRX_NUM_EXT_TIDS];
+	bool tids_last_pn_valid[ATH10K_TXRX_NUM_EXT_TIDS];
+	union htt_rx_pn_t frag_tids_last_pn[ATH10K_TXRX_NUM_EXT_TIDS];
+	u32 frag_tids_seq[ATH10K_TXRX_NUM_EXT_TIDS];
+	struct {
+		enum htt_security_types sec_type;
+		int pn_len;
+	} rx_pn[ATH10K_HTT_TXRX_PEER_SECURITY_MAX];
 };
 
 struct ath10k_txq {
@@ -883,6 +891,8 @@ enum ath10k_dev_type {
 struct ath10k_bus_params {
 	u32 chip_id;
 	enum ath10k_dev_type dev_type;
+	bool link_can_suspend;
+	bool hl_msdu_ids;
 };
 
 struct ath10k {
@@ -1144,6 +1154,7 @@ struct ath10k {
 	enum ath10k_radar_confirmation_state radar_conf_state;
 	struct ath10k_radar_found_info last_radar_info;
 	struct work_struct radar_confirmation_work;
+	struct ath10k_bus_params bus_param;
 
 	/* must be last */
 	u8 drv_priv[0] __aligned(sizeof(void *));

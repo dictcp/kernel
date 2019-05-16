@@ -46,7 +46,7 @@ static int hdac_hda_dai_set_tdm_slot(struct snd_soc_dai *dai,
 static struct hda_pcm *snd_soc_find_pcm_from_dai(struct hdac_hda_priv *hda_pvt,
 						 struct snd_soc_dai *dai);
 
-static struct snd_soc_dai_ops hdac_hda_dai_ops = {
+static const struct snd_soc_dai_ops hdac_hda_dai_ops = {
 	.startup = hdac_hda_dai_open,
 	.shutdown = hdac_hda_dai_close,
 	.prepare = hdac_hda_dai_prepare,
@@ -448,7 +448,7 @@ static int hdac_hda_dev_probe(struct hdac_device *hdev)
 		return -ENOMEM;
 
 	/* ASoC specific initialization */
-	ret = snd_soc_register_component(&hdev->dev,
+	ret = devm_snd_soc_register_component(&hdev->dev,
 					 &hdac_hda_codec, hdac_hda_dais,
 					 ARRAY_SIZE(hdac_hda_dais));
 	if (ret < 0) {
@@ -464,7 +464,6 @@ static int hdac_hda_dev_probe(struct hdac_device *hdev)
 
 static int hdac_hda_dev_remove(struct hdac_device *hdev)
 {
-	snd_soc_unregister_component(&hdev->dev);
 	return 0;
 }
 

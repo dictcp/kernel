@@ -79,96 +79,44 @@ static unsigned long opp_translate(struct kbase_device *kbdev,
 	return freq;
 }
 
-static void voltage_range_check(unsigned long *voltage)
+static void voltage_range_check(struct kbase_device *kbdev,
+				unsigned long *voltages)
 {
-	voltage[1] = ((voltage[1] - voltage[0]) < MIN_VOLT_BIAS) ?
-		(voltage[0] + MIN_VOLT_BIAS) : voltage[1];
-	voltage[1] = ((voltage[1] - voltage[0]) > MAX_VOLT_BIAS) ?
-		(voltage[0] + MIN_VOLT_BIAS) : voltage[1];
-	voltage[1] = min_t(unsigned long, max_t(unsigned long, voltage[1],
-		VSRAM_GPU_MIN_VOLT), VSRAM_GPU_MAX_VOLT);
+	if (kbdev->devfreq_ops.voltage_range_check)
+		kbdev->devfreq_ops.voltage_range_check(kbdev, voltages);
 }
 
-static bool get_step_volt(unsigned long *step_volt,
-	unsigned long *target_volt, int count, bool inc)
+#ifdef CONFIG_REGULATOR
+static int set_voltages(struct kbase_device *kbdev, unsigned long *voltages,
+			bool inc)
 {
-	unsigned long regulator_min_volt;
-	unsigned long regulator_max_volt;
-	unsigned long current_bias;
-	long adjust_step;
-	int i;
-
-	if (inc) {
-		current_bias = target_volt[1] - step_volt[0];
-		adjust_step = MIN_VOLT_BIAS;
-	} else {
-		current_bias = step_volt[1] - target_volt[0];
-		adjust_step = -MIN_VOLT_BIAS;
-	}
-
-	for (i = 0; i < count; ++i)
-		if (step_volt[i] != target_volt[i])
-			break;
-
-	if (i == count)
-		return 0;
-
-	for (i = 0; i < count; i++) {
-		if (i) {
-			regulator_min_volt = VSRAM_GPU_MIN_VOLT;
-			regulator_max_volt = VSRAM_GPU_MAX_VOLT;
-		} else {
-			regulator_min_volt = VGPU_MIN_VOLT;
-			regulator_max_volt = VGPU_MAX_VOLT;
-		}
-
-		if (current_bias > MAX_VOLT_BIAS) {
-			step_volt[i] = min(max(step_volt[0] + adjust_step,
-				regulator_min_volt), regulator_max_volt);
-		} else {
-			step_volt[i] = target_volt[i];
-		}
-	}
-	return 1;
-}
-
-static int
-set_voltages(struct kbase_device *kbdev, unsigned long *target_volt, int inc)
-{
-	unsigned long step_volt[REGULATOR_NUM];
-	int first, step;
 	int i;
 	int err;
 
-	for (i = 0; i < kbdev->regulator_num; ++i)
-		step_volt[i] = kbdev->current_voltage[i];
+	if (kbdev->devfreq_ops.set_voltages)
+		return kbdev->devfreq_ops.set_voltages(kbdev, voltages, inc);
 
-	if (inc) {
-		first = kbdev->regulator_num - 1;
-		step = -1;
-	} else {
-		first = 0;
-		step = 1;
-	}
-
-	while (get_step_volt(step_volt, target_volt,
-			kbdev->regulator_num, inc)) {
-		for (i = first; i >= 0 && i < kbdev->regulator_num; i += step) {
-			if (kbdev->current_voltage[i] == step_volt[i])
-				continue;
-
-			err = regulator_set_voltage(kbdev->regulator[i],
-					step_volt[i], step_volt[i] + VOLT_TOL);
-
-			if (err) {
-				dev_err(kbdev->dev, "Failed to set reg %d voltage err:(%d)\n",
-					i, err);
-				return err;
-			}
+	for (i = 0; i < kbdev->regulator_num; i++) {
+		err = regulator_set_voltage(kbdev->regulator[i],
+					    voltages[i], voltages[i]);
+		if (err) {
+			dev_err(kbdev->dev,
+				"Failed to set reg %d voltage err:(%d)\n",
+				i, err);
+			return err;
 		}
 	}
 
 	return 0;
+}
+#endif
+
+static int set_frequency(struct kbase_device *kbdev, unsigned long freq)
+{
+	if (kbdev->devfreq_ops.set_frequency)
+		return kbdev->devfreq_ops.set_frequency(kbdev, freq);
+
+	return clk_set_rate(kbdev->clock, freq);
 }
 
 static int
@@ -178,10 +126,9 @@ kbase_devfreq_target(struct device *dev, unsigned long *target_freq, u32 flags)
 	struct dev_pm_opp *opp;
 	unsigned long nominal_freq;
 	unsigned long freq = 0;
-	unsigned long target_volt[REGULATOR_NUM];
+	unsigned long target_volt[KBASE_MAX_REGULATORS];
 	int err, i;
 	u64 core_mask;
-	struct mfg_base *mfg = kbdev->platform_context;
 
 	freq = *target_freq;
 
@@ -215,11 +162,11 @@ kbase_devfreq_target(struct device *dev, unsigned long *target_freq, u32 flags)
 	}
 
 	freq = opp_translate(kbdev, nominal_freq, &core_mask);
-	voltage_range_check(target_volt);
+	voltage_range_check(kbdev, target_volt);
 
 #ifdef CONFIG_REGULATOR
 	if (kbdev->current_voltage[0] < target_volt[0]) {
-		err = set_voltages(kbdev, target_volt, 1);
+		err = set_voltages(kbdev, target_volt, true);
 		if (err) {
 			dev_err(kbdev->dev, "Failed to increase voltage\n");
 			return err;
@@ -227,30 +174,16 @@ kbase_devfreq_target(struct device *dev, unsigned long *target_freq, u32 flags)
 	}
 #endif
 
-	if (kbdev->current_freq != freq) {
-		err = clk_set_parent(mfg->clk_mux, mfg->clk_sub_parent);
-		if (err) {
-			dev_err(kbdev->dev, "Failed to select sub clock src\n");
-			return err;
-		}
-
-		err = clk_set_rate(kbdev->clock, freq);
-		if (err) {
-			dev_err(dev, "Failed to set clock %lu (target %lu)\n",
-					freq, *target_freq);
-			return err;
-		}
-
-		err = clk_set_parent(mfg->clk_mux, mfg->clk_main_parent);
-		if (err) {
-			dev_err(kbdev->dev, "Failed to select main clock src\n");
-			return err;
-		}
+	err = set_frequency(kbdev, freq);
+	if (err) {
+		dev_err(dev, "Failed to set clock %lu (target %lu)\n",
+				freq, *target_freq);
+		return err;
 	}
 
 #ifdef CONFIG_REGULATOR
 	if (kbdev->current_voltage[0] > target_volt[0]) {
-		err = set_voltages(kbdev, target_volt, 0);
+		err = set_voltages(kbdev, target_volt, false);
 		if (err) {
 			dev_err(kbdev->dev, "Failed to decrease voltage\n");
 			return err;
@@ -432,7 +365,7 @@ static int kbase_devfreq_init_core_mask_table(struct kbase_device *kbdev)
 		kbdev->opp_table[i].core_mask = core_mask;
 
 		dev_info(kbdev->dev, "OPP %d : opp_freq=%llu real_freq=%llu core_mask=%llx\n",
-			i, opp_freq, real_freq, core_mask);
+				i, opp_freq, real_freq, core_mask);
 
 		i++;
 	}
@@ -449,6 +382,12 @@ int kbase_devfreq_init(struct kbase_device *kbdev)
 
 	if (!kbdev->clock) {
 		dev_err(kbdev->dev, "Clock not available for devfreq\n");
+		return -ENODEV;
+	}
+
+	/* Can't do devfreq without this table */
+	if (!kbdev->dev_opp_table) {
+		dev_err(kbdev->dev, "Uninitialized devfreq opp table\n");
 		return -ENODEV;
 	}
 

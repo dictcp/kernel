@@ -204,11 +204,11 @@ static int assign_irqs(struct platform_device *pdev)
 		}
 
 #ifdef CONFIG_OF
-		if (!strncmp(irq_res->name, "JOB", 4)) {
+		if (!strncasecmp(irq_res->name, "job", 4)) {
 			irqtag = JOB_IRQ_TAG;
-		} else if (!strncmp(irq_res->name, "MMU", 4)) {
+		} else if (!strncasecmp(irq_res->name, "mmu", 4)) {
 			irqtag = MMU_IRQ_TAG;
-		} else if (!strncmp(irq_res->name, "GPU", 4)) {
+		} else if (!strncasecmp(irq_res->name, "gpu", 4)) {
 			irqtag = GPU_IRQ_TAG;
 		} else {
 			dev_err(&pdev->dev, "Invalid irq res name: '%s'\n",
@@ -410,6 +410,12 @@ static int kbase_open(struct inode *inode, struct file *filp)
 
 	if (kbdev->infinite_cache_active_default)
 		kbase_ctx_flag_set(kctx, KCTX_INFINITE_CACHE);
+
+	/*
+	 * Allow large offsets as per commit be83bbf80682 ("mmap:
+	 * introduce sane default mmap limits")
+	 */
+	filp->f_mode |= FMODE_UNSIGNED_OFFSET;
 
 #ifdef CONFIG_DEBUG_FS
 	snprintf(kctx_name, 64, "%d_%d", kctx->tgid, kctx->id);
@@ -3134,7 +3140,7 @@ static int power_control_init(struct platform_device *pdev)
 {
 	struct kbase_device *kbdev = to_kbase_device(&pdev->dev);
 	int err = 0;
-	const char **reg_names;
+	const char *reg_names[KBASE_MAX_REGULATORS];
 #if defined(CONFIG_REGULATOR)
 	int i;
 #endif
@@ -3145,29 +3151,37 @@ static int power_control_init(struct platform_device *pdev)
 	kbdev->regulator_num = of_property_count_strings(kbdev->dev->of_node,
 		"supply-names");
 
-	reg_names = kcalloc(kbdev->regulator_num, sizeof(char *), GFP_KERNEL);
+	if (kbdev->regulator_num > KBASE_MAX_REGULATORS) {
+		dev_err(&pdev->dev, "Too many regulators: %d > %d\n",
+			kbdev->regulator_num, KBASE_MAX_REGULATORS);
+		return -EINVAL;
+	} else if (kbdev->regulator_num == -EINVAL) {
+		/* The 'supply-names' is optional; if not there assume "mali" */
+		kbdev->regulator_num = 1;
+		reg_names[0] = "mali";
+	} else if (kbdev->regulator_num < 0) {
+		err = kbdev->regulator_num;
+	} else {
+		err = of_property_read_string_array(kbdev->dev->of_node,
+						    "supply-names", reg_names,
+						    kbdev->regulator_num);
+	}
 
-	if (of_property_read_string_array(kbdev->dev->of_node, "supply-names",
-		reg_names, kbdev->regulator_num) < 0) {
-		dev_err(&pdev->dev, "Failed to get supply names\n");
-		err = -EINVAL;
-		goto fail;
+	if (err < 0) {
+		dev_err(&pdev->dev, "Error reading supply-names: %d\n", err);
+		return err;
 	}
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 12, 0)) && defined(CONFIG_OF) \
 			&& defined(CONFIG_REGULATOR)
 	for (i = 0; i < kbdev->regulator_num; i++) {
-		kbdev->regulator[i] = regulator_get_optional(kbdev->dev, reg_names[i]);
-		if (IS_ERR_OR_NULL(kbdev->regulator[i])) {
+		kbdev->regulator[i] = regulator_get(kbdev->dev, reg_names[i]);
+		if (IS_ERR(kbdev->regulator[i])) {
 			err = PTR_ERR(kbdev->regulator[i]);
 			kbdev->regulator[i] = NULL;
-			if (err == -EPROBE_DEFER) {
+			if (err != -EPROBE_DEFER)
 				dev_err(&pdev->dev, "Failed to get regulator\n");
-				goto fail;
-			}
-			dev_info(kbdev->dev,
-				"Continuing without %s regulator control\n", reg_names[i]);
-			/* Allow probe to continue without regulator */
+			goto fail;
 		}
 	}
 #endif /* LINUX_VERSION_CODE >= 3, 12, 0 */
@@ -3189,11 +3203,12 @@ static int power_control_init(struct platform_device *pdev)
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 4, 0)) \
 	|| defined(LSK_OPPV2_BACKPORT)
 #if defined(CONFIG_REGULATOR)
-	kbdev->dev_opp_table = dev_pm_opp_set_regulators(kbdev->dev, reg_names, 2);
+	kbdev->dev_opp_table = dev_pm_opp_set_regulators(kbdev->dev, reg_names,
+							 kbdev->regulator_num);
 	if (IS_ERR(kbdev->dev_opp_table)) {
 		err = PTR_ERR(kbdev->dev_opp_table);
 		kbdev->dev_opp_table = NULL;
-		dev_err(kbdev->dev, "Failed to set regulators for GPU err: %d\n",
+		dev_err(kbdev->dev, "Failed to init devfreq opp table: %d\n",
 			err);
 	}
 #endif /* CONFIG_REGULATOR */
@@ -3206,8 +3221,6 @@ static int power_control_init(struct platform_device *pdev)
 	if (err)
 		dev_dbg(kbdev->dev, "OPP table not found\n");
 #endif /* CONFIG_OF && CONFIG_PM_OPP */
-
-	kfree(reg_names);
 
 	return 0;
 
@@ -3226,8 +3239,6 @@ if (kbdev->clock != NULL) {
 		}
 	}
 #endif
-
-	kfree(reg_names);
 
 	return err;
 }
@@ -4126,8 +4137,21 @@ static const struct dev_pm_ops kbase_pm_ops = {
 
 #ifdef CONFIG_OF
 static const struct of_device_id kbase_dt_ids[] = {
+	/* DOWNSTREAM ONLY--DO NOT USE */
 	{ .compatible = "arm,malit6xx" },
 	{ .compatible = "arm,mali-midgard" },
+
+	/* From upstream bindings */
+	{ .compatible = "arm,mali-t604" },
+	{ .compatible = "arm,mali-t624" },
+	{ .compatible = "arm,mali-t628" },
+	{ .compatible = "arm,mali-t720" },
+	{ .compatible = "arm,mali-t760" },
+	{ .compatible = "arm,mali-t820" },
+	{ .compatible = "arm,mali-t830" },
+	{ .compatible = "arm,mali-t860" },
+	{ .compatible = "arm,mali-t880" },
+
 	{ /* sentinel */ }
 };
 MODULE_DEVICE_TABLE(of, kbase_dt_ids);
