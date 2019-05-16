@@ -253,6 +253,9 @@ struct intel_encoder {
 	void (*post_pll_disable)(struct intel_encoder *,
 				 const struct intel_crtc_state *,
 				 const struct drm_connector_state *);
+	void (*update_pipe)(struct intel_encoder *,
+			    const struct intel_crtc_state *,
+			    const struct drm_connector_state *);
 	/* Read out the current hw state of this connector, returning true if
 	 * the encoder is active. If the encoder is enabled it also set the pipe
 	 * it is connected to in the pipe parameter. */
@@ -878,7 +881,8 @@ struct intel_crtc_state {
 	struct intel_link_m_n fdi_m_n;
 
 	bool ips_enabled;
-	bool ips_force_disable;
+
+	bool crc_enabled;
 
 	bool enable_fbc;
 
@@ -1954,9 +1958,9 @@ void intel_psr_enable(struct intel_dp *intel_dp,
 		      const struct intel_crtc_state *crtc_state);
 void intel_psr_disable(struct intel_dp *intel_dp,
 		      const struct intel_crtc_state *old_crtc_state);
-int intel_psr_set_debugfs_mode(struct drm_i915_private *dev_priv,
-			       struct drm_modeset_acquire_ctx *ctx,
-			       u64 value);
+void intel_psr_update(struct intel_dp *intel_dp,
+		      const struct intel_crtc_state *crtc_state);
+int intel_psr_debug_set(struct drm_i915_private *dev_priv, u64 value);
 void intel_psr_invalidate(struct drm_i915_private *dev_priv,
 			  unsigned frontbuffer_bits,
 			  enum fb_op_origin origin);

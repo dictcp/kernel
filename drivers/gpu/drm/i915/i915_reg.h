@@ -3977,6 +3977,15 @@ enum {
 /* Pipe A CRC regs */
 #define _PIPE_CRC_CTL_A			0x60050
 #define   PIPE_CRC_ENABLE		(1 << 31)
+/* skl+ source selection */
+#define   PIPE_CRC_SOURCE_PLANE_1_SKL	(0 << 28)
+#define   PIPE_CRC_SOURCE_PLANE_2_SKL	(2 << 28)
+#define   PIPE_CRC_SOURCE_DMUX_SKL	(4 << 28)
+#define   PIPE_CRC_SOURCE_PLANE_3_SKL	(6 << 28)
+#define   PIPE_CRC_SOURCE_PLANE_4_SKL	(7 << 28)
+#define   PIPE_CRC_SOURCE_PLANE_5_SKL	(5 << 28)
+#define   PIPE_CRC_SOURCE_PLANE_6_SKL	(3 << 28)
+#define   PIPE_CRC_SOURCE_PLANE_7_SKL	(1 << 28)
 /* ivb+ source selection */
 #define   PIPE_CRC_SOURCE_PRIMARY_IVB	(0 << 29)
 #define   PIPE_CRC_SOURCE_SPRITE_IVB	(1 << 29)
@@ -4250,6 +4259,15 @@ enum {
 #define EDP_PSR2_STATUS			_MMIO(0x6f940)
 #define EDP_PSR2_STATUS_STATE_MASK     (0xf << 28)
 #define EDP_PSR2_STATUS_STATE_SHIFT    28
+
+#define _PSR2_SU_STATUS_0		0x6F914
+#define _PSR2_SU_STATUS_1		0x6F918
+#define _PSR2_SU_STATUS_2		0x6F91C
+#define _PSR2_SU_STATUS(index)		_MMIO(_PICK_EVEN((index), _PSR2_SU_STATUS_0, _PSR2_SU_STATUS_1))
+#define PSR2_SU_STATUS(frame)		(_PSR2_SU_STATUS((frame) / 3))
+#define PSR2_SU_STATUS_SHIFT(frame)	(((frame) % 3) * 10)
+#define PSR2_SU_STATUS_MASK(frame)	(0x3ff << PSR2_SU_STATUS_SHIFT(frame))
+#define PSR2_SU_STATUS_FRAMES		8
 
 /* VGA port control */
 #define ADPA			_MMIO(0x61100)

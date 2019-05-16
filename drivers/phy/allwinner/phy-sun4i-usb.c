@@ -475,14 +475,18 @@ static int sun4i_usb_phy_power_off(struct phy *_phy)
 	return 0;
 }
 
-static int sun4i_usb_phy_set_mode(struct phy *_phy, enum phy_mode mode)
+static int sun4i_usb_phy_set_mode(struct phy *_phy,
+				  enum phy_mode mode, int submode)
 {
 	struct sun4i_usb_phy *phy = phy_get_drvdata(_phy);
 	struct sun4i_usb_phy_data *data = to_sun4i_usb_phy_data(phy);
 	int new_mode;
 
-	if (phy->index != 0)
+	if (phy->index != 0) {
+		if (mode == PHY_MODE_USB_HOST)
+			return 0;
 		return -EINVAL;
+	}
 
 	switch (mode) {
 	case PHY_MODE_USB_HOST:

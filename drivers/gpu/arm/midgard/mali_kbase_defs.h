@@ -1166,7 +1166,7 @@ struct kbase_mmu_mode const *kbase_mmu_mode_get_aarch64(void);
 
 #define DEVNAME_SIZE	16
 #if defined(CONFIG_REGULATOR)
-#define REGULATOR_NUM	2
+#define KBASE_MAX_REGULATORS	2
 #endif
 
 
@@ -1433,7 +1433,7 @@ struct kbase_device {
 	struct clk *clock;
 #ifdef CONFIG_REGULATOR
 	int regulator_num;
-	struct regulator *regulator[REGULATOR_NUM];
+	struct regulator *regulator[KBASE_MAX_REGULATORS];
 	struct opp_table *dev_opp_table;
 #endif
 	char devname[DEVNAME_SIZE];
@@ -1520,11 +1520,21 @@ struct kbase_device {
 	struct devfreq *devfreq;
 	unsigned long current_freq;
 	unsigned long current_nominal_freq;
-	unsigned long current_voltage[REGULATOR_NUM];
+	unsigned long current_voltage[KBASE_MAX_REGULATORS];
 	u64 current_core_mask;
 	struct kbase_devfreq_opp *opp_table;
 	int num_opps;
 	struct kbasep_pm_metrics last_devfreq_metrics;
+	struct {
+		void (*voltage_range_check)(struct kbase_device *kbdev,
+					    unsigned long *voltages);
+#ifdef CONFIG_REGULATOR
+		int (*set_voltages)(struct kbase_device *kbdev,
+				    unsigned long *voltages, bool inc);
+#endif
+		int (*set_frequency)(struct kbase_device *kbdev,
+				     unsigned long freq);
+	} devfreq_ops;
 #ifdef CONFIG_DEVFREQ_THERMAL
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4, 4, 0)
 	struct devfreq_cooling_device *devfreq_cooling;

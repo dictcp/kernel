@@ -495,7 +495,7 @@ int ath10k_htt_tx_start(struct ath10k_htt *htt)
 	if (htt->tx_mem_allocated)
 		return 0;
 
-	if (ar->dev_type == ATH10K_DEV_TYPE_HL)
+	if (ar->bus_param.dev_type == ATH10K_DEV_TYPE_HL)
 		return 0;
 
 	ret = ath10k_htt_tx_alloc_buf(htt);
@@ -1177,7 +1177,7 @@ int ath10k_htt_mgmt_tx(struct ath10k_htt *htt, struct sk_buff *msdu)
 	return 0;
 
 err_unmap_msdu:
-	if (ar->dev_type != ATH10K_DEV_TYPE_HL)
+	if (ar->bus_param.dev_type != ATH10K_DEV_TYPE_HL)
 		dma_unmap_single(dev, skb_cb->paddr, msdu->len, DMA_TO_DEVICE);
 err_free_txdesc:
 	dev_kfree_skb_any(txdesc);
@@ -1208,6 +1208,7 @@ static int ath10k_htt_tx_hl(struct ath10k_htt *htt, enum ath10k_hw_txrx_mode txm
 	u8 tid = ath10k_htt_tx_get_tid(msdu, is_eth);
 	u8 flags0 = 0;
 	u16 flags1 = 0;
+	u16 msdu_id = 0;
 
 	data_len = msdu->len;
 
@@ -1255,6 +1256,23 @@ static int ath10k_htt_tx_hl(struct ath10k_htt *htt, enum ath10k_hw_txrx_mode txm
 		}
 	}
 
+	if (ar->bus_param.hl_msdu_ids) {
+		flags1 |= HTT_DATA_TX_DESC_FLAGS1_POSTPONED;
+		res = ath10k_htt_tx_alloc_msdu_id(htt, msdu);
+		if (res < 0) {
+			ath10k_err(ar, "msdu_id allocation failed %d\n", res);
+			goto out;
+		}
+		msdu_id = res;
+	}
+
+	/* As msdu is freed by mac80211 (in ieee80211_tx_status()) and by
+	 * ath10k (in ath10k_htt_htc_tx_complete()) we have to increase
+	 * reference by one to avoid a use-after-free case and a double
+	 * free.
+	 */
+	skb_get(msdu);
+
 	skb_push(msdu, sizeof(*cmd_hdr));
 	skb_push(msdu, sizeof(*tx_desc));
 	cmd_hdr = (struct htt_cmd_hdr *)msdu->data;
@@ -1264,7 +1282,7 @@ static int ath10k_htt_tx_hl(struct ath10k_htt *htt, enum ath10k_hw_txrx_mode txm
 	tx_desc->flags0 = flags0;
 	tx_desc->flags1 = __cpu_to_le16(flags1);
 	tx_desc->len = __cpu_to_le16(data_len);
-	tx_desc->id = 0;
+	tx_desc->id = __cpu_to_le16(msdu_id);
 	tx_desc->frags_paddr = 0; /* always zero */
 	/* Initialize peer_id to INVALID_PEER because this is NOT
 	 * Reinjection path
@@ -1714,7 +1732,7 @@ void ath10k_htt_set_tx_ops(struct ath10k_htt *htt)
 {
 	struct ath10k *ar = htt->ar;
 
-	if (ar->dev_type == ATH10K_DEV_TYPE_HL)
+	if (ar->bus_param.dev_type == ATH10K_DEV_TYPE_HL)
 		htt->tx_ops = &htt_tx_ops_hl;
 	else if (ar->hw_params.target_64bit)
 		htt->tx_ops = &htt_tx_ops_64;

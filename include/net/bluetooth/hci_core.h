@@ -205,12 +205,18 @@ struct adv_info {
 
 #define HCI_MAX_SHORT_NAME_LENGTH	10
 
+/* Min encryption key size to match with SMP */
+#define HCI_MIN_ENC_KEY_SIZE		7
+
 /* Default LE RPA expiry time, 15 minutes */
 #define HCI_DEFAULT_RPA_TIMEOUT		(15 * 60)
 
 /* Default min/max age of connection information (1s/3s) */
 #define DEFAULT_CONN_INFO_MIN_AGE	1000
 #define DEFAULT_CONN_INFO_MAX_AGE	3000
+
+#define MAX_BLOCKED_LTKS		8
+#define LTK_LENGTH			16
 
 struct amp_assoc {
 	__u16	len;
@@ -285,6 +291,8 @@ struct hci_dev {
 	__u16		le_max_tx_time;
 	__u16		le_max_rx_len;
 	__u16		le_max_rx_time;
+	__u8		le_max_key_size;
+	__u8		le_min_key_size;
 	__u16		discov_interleaved_timeout;
 	__u16		conn_info_min_age;
 	__u16		conn_info_max_age;
@@ -426,6 +434,8 @@ struct hci_dev {
 	__u8			adv_data_len;
 	__u8			scan_rsp_data[HCI_MAX_AD_LENGTH];
 	__u8			scan_rsp_data_len;
+	/* These long term keys shouldn't be used */
+	__u8			blocked_ltks[MAX_BLOCKED_LTKS][LTK_LENGTH];
 
 	struct list_head	adv_instances;
 	unsigned int		adv_instance_cnt;
@@ -1598,6 +1608,8 @@ void hci_le_start_enc(struct hci_conn *conn, __le16 ediv, __le64 rand,
 
 void hci_copy_identity_address(struct hci_dev *hdev, bdaddr_t *bdaddr,
 			       u8 *bdaddr_type);
+
+bool is_ltk_blocked(struct smp_ltk *key, struct hci_dev *hdev);
 
 #define SCO_AIRMODE_MASK       0x0003
 #define SCO_AIRMODE_CVSD       0x0000

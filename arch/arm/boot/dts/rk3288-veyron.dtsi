@@ -21,8 +21,6 @@
 
 	gpio_keys: gpio-keys {
 		compatible = "gpio-keys";
-		#address-cells = <1>;
-		#size-cells = <0>;
 
 		pinctrl-names = "default";
 		pinctrl-0 = <&pwr_key_l>;
@@ -58,12 +56,19 @@
 		pinctrl-0 = <&bt_enable_l>, <&wifi_enable_h>;
 
 		/*
-		 * On the module itself this is one of these (depending
-		 * on the actual card populated):
+		 * Depending on the actual card populated GPIO4 D4 and D5
+		 * correspond to one of these signals on the module:
+		 *
+		 * D4:
 		 * - SDIO_RESET_L_WL_REG_ON
 		 * - PDN (power down when low)
+		 *
+		 * D5:
+		 * - BT_I2S_WS_BT_RFDISABLE_L
+		 * - No connect
 		 */
-		reset-gpios = <&gpio4 RK_PD4 GPIO_ACTIVE_LOW>;
+		reset-gpios = <&gpio4 RK_PD4 GPIO_ACTIVE_LOW>,
+			      <&gpio4 RK_PD5 GPIO_ACTIVE_LOW>;
 	};
 
 	vcc_5v: vcc-5v {
@@ -91,7 +96,49 @@
 		regulator-boot-on;
 		vin-supply = <&vcc_5v>;
 	};
+
+	vdd_logic: vdd-logic {
+		compatible = "pwm-regulator";
+		regulator-name = "vdd_logic";
+
+		pwms = <&pwm1 0 1994 0>;
+		pwm-supply = <&vcc33_sys>;
+
+		pwm-dutycycle-range = <0x7b 0>;
+		pwm-dutycycle-unit = <0x94>;
+
+		regulator-always-on;
+		regulator-boot-on;
+		regulator-min-microvolt = <950000>;
+		regulator-max-microvolt = <1350000>;
+		regulator-ramp-delay = <4000>;
+	};
 };
+
+/*
+ * We reserve the big VOP for HDMI and the little VOP for eDP.
+ * Delete the other connections.
+ *
+ * This is _nearly_ always the ideal thing to do for veyron devices.
+ * The difference between the two VOPs is that the big VOP is more
+ * power hungry but can drive larger resolutions.  On veyron the panel
+ * is always low enough resolution that the little VOP can handle it.
+ *
+ * The only case where we'd benefit from doing things differently on
+ * veyron is if the internal panel is off (or we're on a box w/ no
+ * internal panel) and we happen to be driving a low resolution.  In
+ * such a case we could save power by using the little VOP.
+ *
+ * NOTE also that Chrome OS hacks also dedicate NPLL to the big VOP
+ * and thus the big VOP can achieve more pixel clocks which is good
+ * for HDMI displays.  We've chosen pixel clocks for the internal
+ * panels that are always achievable from the fixed PLLs.
+ */
+
+/delete-node/ &edp_in_vopb;
+/delete-node/ &hdmi_in_vopl;
+/delete-node/ &vopb_out_edp;
+/delete-node/ &vopl_out_hdmi;
 
 &cpu0 {
 	cpu0-supply = <&vdd_cpu>;
@@ -117,6 +164,18 @@
 	};
 };
 
+&dmc {
+	logic-supply = <&vdd_logic>;
+	rockchip,odt-disable-freq = <333000000>;
+	rockchip,dll-disable-freq = <333000000>;
+	rockchip,sr-enable-freq = <333000000>;
+	rockchip,auto-self-refresh-cnt = <0>;
+	rockchip,auto-power-down-cnt = <64>;
+	rockchip,ddr-speed-bin = <21>;
+	rockchip,trcd = <10>;
+	rockchip,trp = <10>;
+};
+
 &emmc {
 	status = "okay";
 
@@ -134,6 +193,18 @@
 &gpu {
 	mali-supply = <&vdd_gpu>;
 	status = "okay";
+};
+
+/*
+ * Remove 500 MHz since the only way to make 500 MHz is via the NPLL
+ * which is dedicated to the external display.
+ *
+ * NOTE: without this deletion the GPU driver may end up thinking it
+ * is running at 500 MHz (and it will up the voltage based on that
+ * belief), but it'll actually end up at 400 MHz.
+ */
+&gpu_opp_table {
+	/delete-node/ opp-500000000;
 };
 
 &hdmi {
@@ -191,8 +262,7 @@
 				regulator-max-microvolt = <1250000>;
 				regulator-ramp-delay = <6001>;
 				regulator-state-mem {
-					regulator-on-in-suspend;
-					regulator-suspend-microvolt = <1000000>;
+					regulator-off-in-suspend;
 				};
 			};
 
@@ -374,10 +444,6 @@
 &uart0 {
 	status = "okay";
 
-	/* We need to go faster than 24MHz, so adjust clock parents / rates */
-	assigned-clocks = <&cru SCLK_UART0>;
-	assigned-clock-rates = <48000000>;
-
 	/* Pins don't include flow control by default; add that in */
 	pinctrl-names = "default";
 	pinctrl-0 = <&uart0_xfer &uart0_cts &uart0_rts>;
@@ -403,6 +469,7 @@
 
 &usb_host1 {
 	status = "okay";
+	snps,need-phy-for-wake;
 };
 
 &usb_otg {
@@ -411,6 +478,7 @@
 	assigned-clocks = <&cru SCLK_USBPHY480M_SRC>;
 	assigned-clock-parents = <&usbphy0>;
 	dr_mode = "host";
+	snps,need-phy-for-wake;
 };
 
 &vopb {
@@ -429,10 +497,14 @@
 	pinctrl-names = "default", "sleep";
 	pinctrl-0 = <
 		/* Common for sleep and wake, but no owners */
+		&ddr0_retention
+		&ddrio_pwroff
 		&global_pwroff
 	>;
 	pinctrl-1 = <
 		/* Common for sleep and wake, but no owners */
+		&ddr0_retention
+		&ddrio_pwroff
 		&global_pwroff
 	>;
 
