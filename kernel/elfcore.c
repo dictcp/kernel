@@ -5,6 +5,7 @@
 #include <linux/binfmts.h>
 
 // dinked
+// dinked again
 
 Elf_Half __weak elf_core_extra_phdrs(void)
 {
