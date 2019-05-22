@@ -4,6 +4,8 @@
 #include <linux/mm.h>
 #include <linux/binfmts.h>
 
+// dinked
+
 Elf_Half __weak elf_core_extra_phdrs(void)
 {
 	return 0;
