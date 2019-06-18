@@ -1144,8 +1144,7 @@ static int clean_up_hci_state(struct hci_dev *hdev)
 
 	hci_req_clear_adv_instance(hdev, NULL, NULL, 0x00, false);
 
-	if (hci_dev_test_flag(hdev, HCI_LE_ADV))
-		__hci_req_disable_advertising(&req);
+	__hci_req_disable_advertising(&req);
 
 	discov_stopped = hci_req_stop_discovery(&req);
 
@@ -1153,6 +1152,22 @@ static int clean_up_hci_state(struct hci_dev *hdev)
 		/* 0x15 == Terminated due to Power Off */
 		__hci_abort_conn(&req, conn, 0x15);
 	}
+
+	/* When there are no bluetooth activities, i.e., no advertising,
+	 * no scanning, and no connections, the only command built into
+	 * the request would be a conditional HCI command to disable
+	 * advertising. Since the advertising is already off, the command
+	 * is skipped at run time. This leads to an issue that there is
+	 * no command complete event and thus the clean_up_hci_complete()
+	 * callback below is not invoked. This ends up with a 5-second delay
+	 * in setting power off.
+	 * It is important to add this dummy HCI command at the end of the
+	 * request to ensure that the last command in the request would
+	 * definitely be executed. As a result, the clean_up_hci_complete()
+	 * callback would be executed which in turn starts the power off
+	 * procedure immediately.
+	 */
+	hci_req_add(&req, HCI_OP_READ_LOCAL_NAME, 0, NULL);
 
 	err = hci_req_run(&req, clean_up_hci_complete);
 	if (!err && discov_stopped)
@@ -1963,9 +1978,7 @@ static int set_le(struct sock *sk, struct hci_dev *hdev, void *data, u16 len)
 		hci_cp.le = val;
 		hci_cp.simul = 0x00;
 	} else {
-		if (hci_dev_test_flag(hdev, HCI_LE_ADV))
-			__hci_req_disable_advertising(&req);
-
+		__hci_req_disable_advertising(&req);
 		if (ext_adv_capable(hdev))
 			__hci_req_clear_ext_adv_sets(&req);
 	}
@@ -3903,7 +3916,7 @@ static int start_discovery_internal(struct sock *sk, struct hci_dev *hdev,
 	cmd->cmd_complete = generic_cmd_complete;
 
 	hci_discovery_set_state(hdev, DISCOVERY_STARTING);
-	queue_work(hdev->req_workqueue, &hdev->discov_update);
+	queue_work(hdev->req_workqueue, &hdev->start_discov_update);
 	err = 0;
 
 failed:
@@ -4026,7 +4039,7 @@ static int start_service_discovery(struct sock *sk, struct hci_dev *hdev,
 	}
 
 	hci_discovery_set_state(hdev, DISCOVERY_STARTING);
-	queue_work(hdev->req_workqueue, &hdev->discov_update);
+	queue_work(hdev->req_workqueue, &hdev->start_discov_update);
 	err = 0;
 
 failed:
@@ -4085,7 +4098,7 @@ static int stop_discovery(struct sock *sk, struct hci_dev *hdev, void *data,
 	cmd->cmd_complete = generic_cmd_complete;
 
 	hci_discovery_set_state(hdev, DISCOVERY_STOPPING);
-	queue_work(hdev->req_workqueue, &hdev->discov_update);
+	queue_work(hdev->req_workqueue, &hdev->stop_discov_update);
 	err = 0;
 
 unlock:
@@ -4500,11 +4513,14 @@ static int set_scan_params(struct sock *sk, struct hci_dev *hdev,
 	err = mgmt_cmd_complete(sk, hdev->id, MGMT_OP_SET_SCAN_PARAMS, 0,
 				NULL, 0);
 
-	/* If background scan is running, restart it so new parameters are
+	/* If background scan is running (and not in progress of stopping
+	 * already), restart it so new parameters are
 	 * loaded.
 	 */
 	if (hci_dev_test_flag(hdev, HCI_LE_SCAN) &&
+	    !hci_dev_test_flag(hdev, HCI_LE_SCAN_CHANGE_IN_PROGRESS) &&
 	    hdev->discovery.state == DISCOVERY_STOPPED) {
+
 		struct hci_request req;
 
 		hci_req_init(&req, hdev);
@@ -4732,12 +4748,12 @@ static int set_event_mask(struct sock *sk, struct hci_dev *hdev,
 	}
 
 	cmd = mgmt_pending_add(sk, MGMT_OP_SET_EVENT_MASK, hdev, data, len);
-	cmd->cmd_complete = generic_cmd_complete;
-
 	if (!cmd) {
 		err = -ENOMEM;
 		goto failed;
 	}
+
+	cmd->cmd_complete = generic_cmd_complete;
 
 	hci_req_init(&req, hdev);
 	for (i = 0 ; i < HCI_SET_EVENT_MASK_SIZE; i++) {
@@ -6690,12 +6706,24 @@ static void add_advertising_complete(struct hci_dev *hdev, u8 status,
 	cp = cmd->param;
 	rp.instance = cp->instance;
 
-	if (status)
+	if (status) {
 		mgmt_cmd_status(cmd->sk, cmd->index, cmd->opcode,
 				mgmt_status(status));
-	else
+		// Error codes from mgmt_status_table.
+		WARN_ONCE(status == 0x0c,
+			  "HCI error: Command Disallowed (%d)", status);
+		WARN_ONCE(status == 0x17,
+			  "HCI error: Repeated Attempts (%d)", status);
+		WARN_ONCE(status == 0x30,
+			  "HCI error: Role Switch Pending? (%d)", status);
+		WARN_ONCE(status == 0x35,
+			  "HCI error: Host Busy Pairing? (%d)", status);
+		WARN_ONCE(status == 0x37,
+			  "HCI error: Controller Busy? (%d)", status);
+	} else {
 		mgmt_cmd_complete(cmd->sk, cmd->index, cmd->opcode,
 				  mgmt_status(status), &rp, sizeof(rp));
+	}
 
 	mgmt_pending_remove(cmd);
 
@@ -6759,6 +6787,7 @@ static int add_advertising(struct sock *sk, struct hci_dev *hdev,
 	if (pending_find(MGMT_OP_ADD_ADVERTISING, hdev) ||
 	    pending_find(MGMT_OP_REMOVE_ADVERTISING, hdev) ||
 	    pending_find(MGMT_OP_SET_LE, hdev)) {
+		WARN_ONCE(1, "MGMT_OP_ADD_ADVERTISING error: pending command");
 		err = mgmt_cmd_status(sk, hdev->id, MGMT_OP_ADD_ADVERTISING,
 				      MGMT_STATUS_BUSY);
 		goto unlock;
@@ -6832,13 +6861,18 @@ static int add_advertising(struct sock *sk, struct hci_dev *hdev,
 
 	hci_req_init(&req, hdev);
 
+	hci_req_add(&req, HCI_OP_READ_LOCAL_NAME, 0, NULL);
+
 	err = __hci_req_schedule_adv_instance(&req, schedule_instance, true);
 
 	if (!err)
 		err = hci_req_run(&req, add_advertising_complete);
 
-	if (err < 0)
+	if (err < 0) {
+		err = mgmt_cmd_status(sk, hdev->id, MGMT_OP_ADD_ADVERTISING,
+				      MGMT_STATUS_FAILED);
 		mgmt_pending_remove(cmd);
+	}
 
 unlock:
 	hci_dev_unlock(hdev);
@@ -6899,6 +6933,8 @@ static int remove_advertising(struct sock *sk, struct hci_dev *hdev,
 	if (pending_find(MGMT_OP_ADD_ADVERTISING, hdev) ||
 	    pending_find(MGMT_OP_REMOVE_ADVERTISING, hdev) ||
 	    pending_find(MGMT_OP_SET_LE, hdev)) {
+		WARN_ONCE(1,
+			  "MGMT_OP_REMOVE_ADVERTISING error: pending command");
 		err = mgmt_cmd_status(sk, hdev->id, MGMT_OP_REMOVE_ADVERTISING,
 				      MGMT_STATUS_BUSY);
 		goto unlock;
@@ -6938,6 +6974,8 @@ static int remove_advertising(struct sock *sk, struct hci_dev *hdev,
 		err = -ENOMEM;
 		goto unlock;
 	}
+
+	hci_req_add(&req, HCI_OP_READ_LOCAL_NAME, 0, NULL);
 
 	err = hci_req_run(&req, remove_advertising_complete);
 	if (err < 0)
@@ -7978,6 +8016,7 @@ static bool is_filter_match(struct hci_dev *hdev, s8 rssi, u8 *eir,
 	 * scanning to ensure updated result with updated RSSI values.
 	 */
 	if (test_bit(HCI_QUIRK_STRICT_DUPLICATE_FILTER, &hdev->quirks)) {
+		BT_DBG("BT_DBG_DG: queue le_scan_restart: mgmt:restart_le_scan:is_filter_match\n");
 		restart_le_scan(hdev);
 
 		/* Validate RSSI value against the RSSI threshold once more. */

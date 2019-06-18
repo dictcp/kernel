@@ -42,12 +42,6 @@ void mtk_mipi_tx_update_bits(struct mtk_mipi_tx *mipi_tx, u32 offset,
 	writel((temp & ~mask) | (data & mask), mipi_tx->regs + offset);
 }
 
-long mtk_mipi_tx_pll_round_rate(struct clk_hw *hw, unsigned long rate,
-				unsigned long *prate)
-{
-	return clamp_val(rate, 50000000, 1250000000);
-}
-
 int mtk_mipi_tx_pll_set_rate(struct clk_hw *hw, unsigned long rate,
 			     unsigned long parent_rate)
 {
@@ -201,3 +195,4 @@ struct platform_driver mtk_mipi_tx_driver = {
 		.of_match_table = mtk_mipi_tx_match,
 	},
 };
+

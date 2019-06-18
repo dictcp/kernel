@@ -79,6 +79,7 @@ static int mtk_mipi_tx_pll_prepare(struct clk_hw *hw)
 	mtk_mipi_tx_set_bits(mipi_tx, MIPITX_PLL_PWR, AD_DSI_PLL_SDM_PWR_ON);
 	usleep_range(30, 100);
 	mtk_mipi_tx_clear_bits(mipi_tx, MIPITX_PLL_PWR, AD_DSI_PLL_SDM_ISO_EN);
+	mtk_mipi_tx_clear_bits(mipi_tx, MIPITX_PLL_CON1, RG_DSI_PLL_EN);
 	pcw = div_u64(((u64)mipi_tx->data_rate * txdiv) << 24, 26000000);
 	writel(pcw, mipi_tx->regs + MIPITX_PLL_CON0);
 	mtk_mipi_tx_update_bits(mipi_tx, MIPITX_PLL_CON1, RG_DSI_PLL_POSDIV,
@@ -100,6 +101,12 @@ static void mtk_mipi_tx_pll_unprepare(struct clk_hw *hw)
 	mtk_mipi_tx_set_bits(mipi_tx, MIPITX_PLL_PWR, AD_DSI_PLL_SDM_ISO_EN);
 	mtk_mipi_tx_clear_bits(mipi_tx, MIPITX_PLL_PWR, AD_DSI_PLL_SDM_PWR_ON);
 	clk_disable_unprepare(mipi_tx->ref_clk);
+}
+
+static long mtk_mipi_tx_pll_round_rate(struct clk_hw *hw, unsigned long rate,
+				       unsigned long *prate)
+{
+	return clamp_val(rate, 50000000, 1600000000);
 }
 
 static const struct clk_ops mtk_mipi_tx_pll_ops = {
@@ -152,3 +159,4 @@ const struct mtk_mipitx_data mt8183_mipitx_data = {
 	.mipi_tx_enable_signal = mtk_mipi_tx_power_on_signal,
 	.mipi_tx_disable_signal = mtk_mipi_tx_power_off_signal,
 };
+
