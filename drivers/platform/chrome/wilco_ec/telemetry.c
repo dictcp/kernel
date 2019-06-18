@@ -18,12 +18,11 @@
  * process may have the file descriptor open at a time. The calling
  * userspace program needs to keep the device file descriptor open
  * between the calls to write() and read() in order to preserve the
- * response. 32 bytes of data are expected for arguments, and 32
- * bytes will be available for reading.
+ * response. Up to 32 bytes will be available for reading.
  *
  * For testing purposes, try requesting the EC's firmware build
  * date, by sending the WILCO_EC_TELEM_GET_VERSION command with
- * argument index=3. i.e. write [0x38, 0x00, 0x03, ...(29 more 0s)]
+ * argument index=3. i.e. write [0x38, 0x00, 0x03]
  * to the device node. An ASCII string of the build date is
  * returned.
  */
@@ -60,20 +59,9 @@ static DEFINE_IDA(telem_ida);
 #define WILCO_EC_TELEM_GET_TEMP_INFO		0x95
 #define WILCO_EC_TELEM_GET_TEMP_READ		0x2C
 #define WILCO_EC_TELEM_GET_BATT_EXT_INFO	0x07
+#define WILCO_EC_TELEM_GET_BATT_PPID_INFO	0x8A
 
 #define TELEM_ARGS_SIZE_MAX	30
-
-/**
- * struct wilco_ec_telem_request - Telemetry command and arguments sent to EC.
- * @command: One of WILCO_EC_TELEM_GET_* command codes.
- * @reserved: Must be 0.
- * @args: The first N bytes are one of telem_args_get_* structs, the rest is 0.
- */
-struct wilco_ec_telem_request {
-	u8 command;
-	u8 reserved;
-	u8 args[TELEM_ARGS_SIZE_MAX];
-} __packed;
 
 /*
  * The following telem_args_get_* structs are embedded within the |args| field
@@ -105,6 +93,7 @@ struct telem_args_get_fan_info {
 
 struct telem_args_get_diag_info {
 	u8 type;
+	u8 sub_type;
 } __packed;
 
 struct telem_args_get_temp_info {
@@ -122,64 +111,87 @@ struct telem_args_get_batt_ext_info {
 	u8 var_args[5];
 } __packed;
 
-static const char TELEM_ARGS_ZERO[TELEM_ARGS_SIZE_MAX] = {0};
+struct telem_args_get_batt_ppid_info {
+	u8 always1; /* Should always be 1 */
+} __packed;
 
 /**
- * check_args_length() - Ensure that un-needed argument bytes are 0.
- * @rq:	Request to be validated.
- * @arg_size: Number of bytes of rq->args that are allowed to be non-zero.
+ * struct wilco_ec_telem_request - Telemetry command and arguments sent to EC.
+ * @command: One of WILCO_EC_TELEM_GET_* command codes.
+ * @reserved: Must be 0.
+ * @args: The first N bytes are one of telem_args_get_* structs, the rest is 0.
  */
-static int check_args_length(struct wilco_ec_telem_request *rq, size_t arg_size)
-{
-	if (memcmp(rq->args + arg_size, TELEM_ARGS_ZERO,
-		   TELEM_ARGS_SIZE_MAX - arg_size) != 0)
-		return -EINVAL;
+struct wilco_ec_telem_request {
+	u8 command;
+	u8 reserved;
+	union {
+		u8 buf[TELEM_ARGS_SIZE_MAX];
+		struct telem_args_get_log		get_log;
+		struct telem_args_get_version		get_version;
+		struct telem_args_get_fan_info		get_fan_info;
+		struct telem_args_get_diag_info		get_diag_info;
+		struct telem_args_get_temp_info		get_temp_info;
+		struct telem_args_get_temp_read		get_temp_read;
+		struct telem_args_get_batt_ext_info	get_batt_ext_info;
+		struct telem_args_get_batt_ppid_info	get_batt_ppid_info;
+	} args;
+} __packed;
 
-	return 0;
-}
-
-/*
+/**
+ * check_telem_request() - Ensure that a request from userspace is valid.
+ * @rq: Request buffer copied from userspace.
+ * @size: Number of bytes copied from userspace.
+ *
+ * Return: 0 if valid, -EINVAL if bad command or reserved byte is non-zero,
+ *         -EMSGSIZE if the request is too long.
+ *
  * We do not want to allow userspace to send arbitrary telemetry commands to
  * the EC. Therefore we check to ensure that
  * 1. The request follows the format of struct wilco_ec_telem_request.
  * 2. The supplied command code is one of the whitelisted commands.
- * 3. The arguments only contain the necessary data. Each command takes a
- *    different format of arguments, and only these arguments can be non-zero.
- *    For instance, if the request uses command WILCO_EC_TELEM_GET_LOG, then
- *    the command uses the argument format of telem_args_get_log, which
- *    contains 2 bytes of arguments. Thus, everything in the args besides
- *    these two bytes had better be zero.
+ * 3. The request only contains the necessary data for the header and arguments.
  */
-static int check_telem_request(struct wilco_ec_telem_request *rq)
+static int check_telem_request(struct wilco_ec_telem_request *rq,
+			       size_t size)
 {
+	size_t max_size = offsetof(struct wilco_ec_telem_request, args);
+
 	if (rq->reserved)
 		return -EINVAL;
 
 	switch (rq->command) {
 	case WILCO_EC_TELEM_GET_LOG:
-		return check_args_length(rq,
-				sizeof(struct telem_args_get_log));
+		max_size += sizeof(rq->args.get_log);
+		break;
 	case WILCO_EC_TELEM_GET_VERSION:
-		return check_args_length(rq,
-				sizeof(struct telem_args_get_version));
+		max_size += sizeof(rq->args.get_version);
+		break;
 	case WILCO_EC_TELEM_GET_FAN_INFO:
-		return check_args_length(rq,
-				sizeof(struct telem_args_get_fan_info));
+		max_size += sizeof(rq->args.get_fan_info);
+		break;
 	case WILCO_EC_TELEM_GET_DIAG_INFO:
-		return check_args_length(rq,
-				sizeof(struct telem_args_get_diag_info));
+		max_size += sizeof(rq->args.get_diag_info);
+		break;
 	case WILCO_EC_TELEM_GET_TEMP_INFO:
-		return check_args_length(rq,
-				sizeof(struct telem_args_get_temp_info));
+		max_size += sizeof(rq->args.get_temp_info);
+		break;
 	case WILCO_EC_TELEM_GET_TEMP_READ:
-		return check_args_length(rq,
-				sizeof(struct telem_args_get_temp_read));
+		max_size += sizeof(rq->args.get_temp_read);
+		break;
 	case WILCO_EC_TELEM_GET_BATT_EXT_INFO:
-		return check_args_length(rq,
-				sizeof(struct telem_args_get_batt_ext_info));
+		max_size += sizeof(rq->args.get_batt_ext_info);
+		break;
+	case WILCO_EC_TELEM_GET_BATT_PPID_INFO:
+		if (rq->args.get_batt_ppid_info.always1 != 1)
+			return -EINVAL;
+
+		max_size += sizeof(rq->args.get_batt_ppid_info);
+		break;
 	default:
 		return -EINVAL;
 	}
+
+	return (size <= max_size) ? 0 : -EMSGSIZE;
 }
 
 /**
@@ -234,6 +246,8 @@ static int telem_open(struct inode *inode, struct file *filp)
 	if (atomic_cmpxchg(&dev_data->available, 1, 0) == 0)
 		return -EBUSY;
 
+	get_device(&dev_data->dev);
+
 	sess_data = kzalloc(sizeof(*sess_data), GFP_KERNEL);
 	if (!sess_data) {
 		atomic_set(&dev_data->available, 1);
@@ -255,14 +269,16 @@ static ssize_t telem_write(struct file *filp, const char __user *buf,
 	struct wilco_ec_message msg = {};
 	int ret;
 
-	if (count != sizeof(sess_data->request))
-		return -EINVAL;
+	if (count > sizeof(sess_data->request))
+		return -EMSGSIZE;
+	memset(&sess_data->request, 0, sizeof(sess_data->request));
 	if (copy_from_user(&sess_data->request, buf, count))
 		return -EFAULT;
-	ret = check_telem_request(&sess_data->request);
+	ret = check_telem_request(&sess_data->request, count);
 	if (ret < 0)
 		return ret;
 
+	memset(sess_data->response, 0, sizeof(sess_data->response));
 	msg.type = WILCO_EC_MSG_TELEMETRY;
 	msg.request_data = &sess_data->request;
 	msg.request_size = sizeof(sess_data->request);
@@ -303,6 +319,7 @@ static int telem_release(struct inode *inode, struct file *filp)
 	struct telem_session_data *sess_data = filp->private_data;
 
 	atomic_set(&sess_data->dev_data->available, 1);
+	put_device(&sess_data->dev_data->dev);
 	kfree(sess_data);
 
 	return 0;
@@ -318,6 +335,21 @@ static const struct file_operations telem_fops = {
 };
 
 /**
+ * telem_device_free() - Callback to free the telem_device_data structure.
+ * @d: The device embedded in our device data, which we have been ref counting.
+ *
+ * Once all open file descriptors are closed and the device has been removed,
+ * the refcount of the device will fall to 0 and this will be called.
+ */
+static void telem_device_free(struct device *d)
+{
+	struct telem_device_data *dev_data;
+
+	dev_data = container_of(d, struct telem_device_data, dev);
+	kfree(dev_data);
+}
+
+/**
  * telem_device_probe() - Callback when creating a new device.
  * @pdev: platform device that we will be receiving telems from.
  *
@@ -329,7 +361,6 @@ static const struct file_operations telem_fops = {
 static int telem_device_probe(struct platform_device *pdev)
 {
 	struct telem_device_data *dev_data;
-	dev_t dev_num;
 	int error, minor;
 
 	/* Get the next available device number */
@@ -340,7 +371,7 @@ static int telem_device_probe(struct platform_device *pdev)
 		return error;
 	}
 
-	dev_data = devm_kzalloc(&pdev->dev, sizeof(*dev_data), GFP_KERNEL);
+	dev_data = kzalloc(sizeof(*dev_data), GFP_KERNEL);
 	if (!dev_data) {
 		ida_simple_remove(&telem_ida, minor);
 		return -ENOMEM;
@@ -352,9 +383,9 @@ static int telem_device_probe(struct platform_device *pdev)
 	platform_set_drvdata(pdev, dev_data);
 
 	/* Initialize the device */
-	dev_num = MKDEV(telem_major, minor);
-	dev_data->dev.devt = dev_num;
+	dev_data->dev.devt = MKDEV(telem_major, minor);
 	dev_data->dev.class = &telem_class;
+	dev_data->dev.release = telem_device_free;
 	dev_set_name(&dev_data->dev, TELEM_DEV_NAME_FMT, minor);
 	device_initialize(&dev_data->dev);
 
@@ -362,6 +393,7 @@ static int telem_device_probe(struct platform_device *pdev)
 	cdev_init(&dev_data->cdev, &telem_fops);
 	error = cdev_device_add(&dev_data->cdev, &dev_data->dev);
 	if (error) {
+		put_device(&dev_data->dev);
 		ida_simple_remove(&telem_ida, minor);
 		return error;
 	}
@@ -374,6 +406,7 @@ static int telem_device_remove(struct platform_device *pdev)
 	struct telem_device_data *dev_data = platform_get_drvdata(pdev);
 
 	cdev_device_del(&dev_data->cdev, &dev_data->dev);
+	put_device(&dev_data->dev);
 	ida_simple_remove(&telem_ida, MINOR(dev_data->dev.devt));
 
 	return 0;
@@ -394,21 +427,21 @@ static int __init telem_module_init(void)
 
 	ret = class_register(&telem_class);
 	if (ret) {
-		pr_warn(DRV_NAME ": Failed registering class: %d", ret);
+		pr_err(DRV_NAME ": Failed registering class: %d", ret);
 		return ret;
 	}
 
 	/* Request the kernel for device numbers, starting with minor=0 */
 	ret = alloc_chrdev_region(&dev_num, 0, TELEM_MAX_DEV, TELEM_DEV_NAME);
 	if (ret) {
-		pr_warn(DRV_NAME ": Failed allocating dev numbers: %d", ret);
+		pr_err(DRV_NAME ": Failed allocating dev numbers: %d", ret);
 		goto destroy_class;
 	}
 	telem_major = MAJOR(dev_num);
 
 	ret = platform_driver_register(&telem_driver);
 	if (ret < 0) {
-		pr_warn(DRV_NAME ": Failed registering driver: %d\n", ret);
+		pr_err(DRV_NAME ": Failed registering driver: %d\n", ret);
 		goto unregister_region;
 	}
 

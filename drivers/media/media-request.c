@@ -100,6 +100,7 @@ static __poll_t media_request_poll(struct file *filp,
 	if (!(poll_requested_events(wait) & EPOLLPRI))
 		return 0;
 
+	poll_wait(filp, &req->poll_wait, wait);
 	spin_lock_irqsave(&req->lock, flags);
 	if (req->state == MEDIA_REQUEST_STATE_COMPLETE) {
 		ret = EPOLLPRI;
@@ -109,8 +110,6 @@ static __poll_t media_request_poll(struct file *filp,
 		ret = EPOLLERR;
 		goto unlock;
 	}
-
-	poll_wait(filp, &req->poll_wait, wait);
 
 unlock:
 	spin_unlock_irqrestore(&req->lock, flags);
@@ -252,7 +251,7 @@ media_request_get_by_fd(struct media_device *mdev, int request_fd)
 
 	if (!mdev || !mdev->ops ||
 	    !mdev->ops->req_validate || !mdev->ops->req_queue)
-		return ERR_PTR(-EACCES);
+		return ERR_PTR(-EBADR);
 
 	filp = fget(request_fd);
 	if (!filp)
@@ -408,7 +407,7 @@ int media_request_object_bind(struct media_request *req,
 	int ret = -EBUSY;
 
 	if (WARN_ON(!ops->release))
-		return -EACCES;
+		return -EBADR;
 
 	spin_lock_irqsave(&req->lock, flags);
 

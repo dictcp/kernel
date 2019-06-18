@@ -19,11 +19,36 @@
 		reg = <0x0 0x0 0x0 0x80000000>;
 	};
 
-	gpio_keys: gpio-keys {
+	bt_activity: bt-activity {
 		compatible = "gpio-keys";
+		pinctrl-names = "default";
+		pinctrl-0 = <&bt_host_wake>;
 
+		/*
+		 * HACK: until we have an LPM driver, we'll use an
+		 * ugly GPIO key to allow Bluetooth to wake from S3.
+		 * This is expected to only be used by BT modules that
+		 * use UART for comms.  For BT modules that talk over
+		 * SDIO we should use a wakeup mechanism related to SDIO.
+		 *
+		 * Use KEY_RESERVED here since that will work as a wakeup but
+		 * doesn't get reported to higher levels (so doesn't confuse
+		 * Chrome).
+		 */
+		bt-wake {
+			label = "BT Wakeup";
+			gpios = <&gpio4 RK_PD7 GPIO_ACTIVE_HIGH>;
+			linux,code = <KEY_RESERVED>;
+			wakeup-source;
+		};
+
+	};
+
+	power_button: power-button {
+		compatible = "gpio-keys";
 		pinctrl-names = "default";
 		pinctrl-0 = <&pwr_key_l>;
+
 		power {
 			label = "Power";
 			gpios = <&gpio0 RK_PA5 GPIO_ACTIVE_LOW>;
@@ -142,6 +167,11 @@
 
 &cpu0 {
 	cpu0-supply = <&vdd_cpu>;
+	complex-usb-min-frequency = <1200000>;
+};
+
+&cpu_crit {
+	temperature = <100000>;
 };
 
 /* rk3288-c used in Veyron Chrome-devices has slightly changed OPPs */
@@ -195,20 +225,18 @@
 	status = "okay";
 };
 
-/*
- * Remove 500 MHz since the only way to make 500 MHz is via the NPLL
- * which is dedicated to the external display.
- *
- * NOTE: without this deletion the GPU driver may end up thinking it
- * is running at 500 MHz (and it will up the voltage based on that
- * belief), but it'll actually end up at 400 MHz.
- */
-&gpu_opp_table {
-	/delete-node/ opp-500000000;
+&gpu_alert0 {
+	temperature = <72500>;
+};
+
+&gpu_crit {
+	temperature = <100000>;
 };
 
 &hdmi {
-	ddc-i2c-bus = <&i2c5>;
+	pinctrl-names = "default", "unwedge";
+	pinctrl-0 = <&hdmi_ddc>;
+	pinctrl-1 = <&hdmi_ddc_unwedge>;
 	status = "okay";
 };
 
@@ -379,14 +407,6 @@
 	i2c-scl-rising-time-ns = <300>;		/* 225ns measured */
 };
 
-&i2c5 {
-	status = "okay";
-
-	clock-frequency = <100000>;
-	i2c-scl-falling-time-ns = <300>;
-	i2c-scl-rising-time-ns = <1000>;
-};
-
 &io_domains {
 	status = "okay";
 
@@ -439,6 +459,7 @@
 
 	rockchip,hw-tshut-mode = <1>; /* tshut mode 0:CRU 1:GPIO */
 	rockchip,hw-tshut-polarity = <1>; /* tshut polarity 0:LOW 1:HIGH */
+	rockchip,hw-tshut-temp = <125000>;
 };
 
 &uart0 {
@@ -587,6 +608,10 @@
 		/* NOTE: mislabelled on schematic; should be bt_enable_h */
 		bt_enable_l: bt-enable-l {
 			rockchip,pins = <4 29 RK_FUNC_GPIO &pcfg_pull_none>;
+		};
+
+		bt_host_wake: bt-host-wake {
+			rockchip,pins = <4 RK_PD7 RK_FUNC_GPIO &pcfg_pull_down>;
 		};
 
 		/*

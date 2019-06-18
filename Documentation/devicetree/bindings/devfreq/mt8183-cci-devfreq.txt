@@ -1,13 +1,11 @@
-* Mediatek CCI frequency device
+* Mediatek Cache Coherent Interconnect(CCI) frequency device
 
 Required properties:
-- compatible: should contain "mediatek,mt8183-cci" for cci devfreq
-
-- clocks: for cci devfreq
-
-- clock-names: for cci devfreq driver to reference
-
-- operating-points-v2: for cci devfreq opp table
+- compatible: should contain "mediatek,mt8183-cci" for frequency scaling of CCI
+- clocks: for frequency scaling of CCI
+- clock-names: for frequency scaling of CCI driver to reference
+- regulator: for voltage scaling of CCI
+- operating-points-v2: for frequency scaling of CCI opp table
 
 Example:
 	cci: cci {
@@ -17,3 +15,6 @@ Example:
 		operating-points-v2 = <&cci_opp>;
 	};
 
+	&cci {
+		proc-supply = <&mt6358_vproc12_reg>;
+	};

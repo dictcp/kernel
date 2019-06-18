@@ -338,6 +338,9 @@ struct hci_dev {
 	unsigned int	sco_cnt;
 	unsigned int	le_cnt;
 
+	unsigned int	count_adv_change_in_progress;
+	unsigned int	count_scan_change_in_progress;
+
 	unsigned int	acl_mtu;
 	unsigned int	sco_mtu;
 	unsigned int	le_mtu;
@@ -375,7 +378,8 @@ struct hci_dev {
 	struct work_struct	cmd_work;
 	struct work_struct	tx_work;
 
-	struct work_struct	discov_update;
+	struct work_struct	start_discov_update;
+	struct work_struct	stop_discov_update;
 	struct work_struct	bg_scan_update;
 	struct work_struct	scan_update;
 	struct work_struct	connectable_update;
@@ -1208,23 +1212,33 @@ void hci_conn_del_sysfs(struct hci_conn *conn);
 #define bredr_sc_enabled(dev)  (lmp_sc_capable(dev) && \
 				hci_dev_test_flag(dev, HCI_SC_ENABLED))
 
-#define scan_1m(dev) (((dev)->le_tx_def_phys & HCI_LE_SET_PHY_1M) || \
-		      ((dev)->le_rx_def_phys & HCI_LE_SET_PHY_1M))
+/* Disable 5.0 features for unified behavior accross chromium BlueZ kernels */
+#define SPEC_5_x_LE_FEATURES_ENABLE (0)
 
-#define scan_2m(dev) (((dev)->le_tx_def_phys & HCI_LE_SET_PHY_2M) || \
-		      ((dev)->le_rx_def_phys & HCI_LE_SET_PHY_2M))
+#define scan_1m(dev) ((((dev)->le_tx_def_phys & HCI_LE_SET_PHY_1M) || \
+		      ((dev)->le_rx_def_phys & HCI_LE_SET_PHY_1M)) & \
+		      SPEC_5_x_LE_FEATURES_ENABLE)
 
-#define scan_coded(dev) (((dev)->le_tx_def_phys & HCI_LE_SET_PHY_CODED) || \
-			 ((dev)->le_rx_def_phys & HCI_LE_SET_PHY_CODED))
+#define scan_2m(dev) ((((dev)->le_tx_def_phys & HCI_LE_SET_PHY_2M) || \
+		      ((dev)->le_rx_def_phys & HCI_LE_SET_PHY_2M)) & \
+		      SPEC_5_x_LE_FEATURES_ENABLE)
+
+#define scan_coded(dev) ((((dev)->le_tx_def_phys & HCI_LE_SET_PHY_CODED) || \
+			 ((dev)->le_rx_def_phys & HCI_LE_SET_PHY_CODED)) & \
+			 SPEC_5_x_LE_FEATURES_ENABLE)
 
 /* Use ext scanning if set ext scan param and ext scan enable is supported */
-#define use_ext_scan(dev) (((dev)->commands[37] & 0x20) && \
-			   ((dev)->commands[37] & 0x40))
+#define use_ext_scan(dev) ((((dev)->commands[37] & 0x20) && \
+			   ((dev)->commands[37] & 0x40)) & \
+			   SPEC_5_x_LE_FEATURES_ENABLE)
+
 /* Use ext create connection if command is supported */
-#define use_ext_conn(dev) ((dev)->commands[37] & 0x80)
+#define use_ext_conn(dev) (((dev)->commands[37] & 0x80) & \
+			   SPEC_5_x_LE_FEATURES_ENABLE)
 
 /* Extended advertising support */
-#define ext_adv_capable(dev) (((dev)->le_features[1] & HCI_LE_EXT_ADV))
+#define ext_adv_capable(dev) ((((dev)->le_features[1] & HCI_LE_EXT_ADV)) & \
+			   SPEC_5_x_LE_FEATURES_ENABLE)
 
 /* ----- HCI protocols ----- */
 #define HCI_PROTO_DEFER             0x01
