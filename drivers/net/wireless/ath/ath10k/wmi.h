@@ -4154,6 +4154,13 @@ enum wmi_tpc_pream_5ghz {
 	WMI_TPC_PREAM_5GHZ_HTCUP,
 };
 
+#define	WMI_PEER_PS_STATE_DISABLED	2
+
+struct wmi_peer_sta_ps_state_chg_event {
+	struct wmi_mac_addr peer_macaddr;
+	__le32 peer_ps_state;
+} __packed;
+
 struct wmi_pdev_chanlist_update_event {
 	/* number of channels */
 	__le32 num_chan;
@@ -4959,10 +4966,15 @@ enum wmi_rate_preamble {
 #define ATH10K_HW_GI(flags)		(((flags) >> 5) & 0x1)
 #define ATH10K_HW_RATECODE(rate, nss, preamble) \
 	(((preamble) << 6) | ((nss) << 4) | (rate))
+#define ATH10K_HW_AMPDU(flags)		((flags) & 0x1)
+#define ATH10K_HW_BA_FAIL(flags)	(((flags) >> 1) & 0x3)
 
-#define VHT_MCS_NUM     10
-#define VHT_BW_NUM      4
-#define VHT_NSS_NUM     4
+#define ATH10K_VHT_MCS_NUM	10
+#define ATH10K_BW_NUM		4
+#define ATH10K_NSS_NUM		4
+#define ATH10K_LEGACY_NUM	12
+#define ATH10K_GI_NUM		2
+#define ATH10K_HT_MCS_NUM	32
 
 /* Value to disable fixed rate setting */
 #define WMI_FIXED_RATE_NONE    (0xff)
