@@ -708,15 +708,18 @@ static int ramoops_parse_dt(struct platform_device *pdev,
 #undef parse_size
 
 	/*
-	 * Some old Chromebooks relied on the kernel setting the console_size
-	 * and pmsg_size to the record size since that's what the downstream
-	 * kernel did.  These same Chromebooks had "ramoops" straight under
-	 * the root node which isn't according to the upstream bindings.  Let's
-	 * make those old Chromebooks work by detecting this and mimicing the
+	 * Some old Chromebooks relied on the kernel setting the
+	 * console_size and pmsg_size to the record size since that's
+	 * what the downstream kernel did.  These same Chromebooks had
+	 * "ramoops" straight under the root node which isn't
+	 * according to the current upstream bindings (though it was
+	 * arguably acceptable under a prior version of the bindings).
+	 * Let's make those old Chromebooks work by detecting that
+	 * we're not a child of "reserved-memory" and mimicking the
 	 * expected behavior.
 	 */
 	parent_node = of_get_parent(of_node);
-	if (of_node_is_root(parent_node) &&
+	if (!of_node_name_eq(parent_node, "reserved-memory") &&
 	    !pdata->console_size && !pdata->ftrace_size &&
 	    !pdata->pmsg_size && !pdata->ecc_info.ecc_size) {
 		pdata->console_size = pdata->record_size;

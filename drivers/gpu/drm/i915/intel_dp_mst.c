@@ -41,8 +41,12 @@ static bool intel_dp_mst_compute_config(struct intel_encoder *encoder,
 	struct drm_connector *connector = conn_state->connector;
 	void *port = to_intel_connector(connector)->port;
 	struct drm_atomic_state *state = pipe_config->base.state;
+	struct drm_crtc *crtc = pipe_config->base.crtc;
+	struct drm_crtc_state *old_crtc_state =
+		drm_atomic_get_old_crtc_state(state, crtc);
 	int bpp;
-	int lane_count, slots = 0;
+	int lane_count, slots =
+		to_intel_crtc_state(old_crtc_state)->dp_m_n.tu;
 	const struct drm_display_mode *adjusted_mode = &pipe_config->base.adjusted_mode;
 	int mst_pbn;
 	bool constant_n = drm_dp_has_quirk(&intel_dp->desc,
@@ -76,17 +80,12 @@ static bool intel_dp_mst_compute_config(struct intel_encoder *encoder,
 	mst_pbn = drm_dp_calc_pbn_mode(adjusted_mode->crtc_clock, bpp);
 	pipe_config->pbn = mst_pbn;
 
-	/* Zombie connectors can't have VCPI slots */
-	if (READ_ONCE(connector->registered)) {
-		slots = drm_dp_atomic_find_vcpi_slots(state,
-						      &intel_dp->mst_mgr,
-						      port,
-						      mst_pbn);
-		if (slots < 0) {
-			DRM_DEBUG_KMS("failed finding vcpi slots:%d\n",
-				      slots);
-			return false;
-		}
+	slots = drm_dp_atomic_find_vcpi_slots(state, &intel_dp->mst_mgr, port,
+					      mst_pbn);
+	if (slots < 0) {
+		DRM_DEBUG_KMS("failed finding vcpi slots:%d\n",
+			      slots);
+		return false;
 	}
 
 	intel_link_compute_m_n(bpp, lane_count,
@@ -106,35 +105,39 @@ static bool intel_dp_mst_compute_config(struct intel_encoder *encoder,
 	return true;
 }
 
-static int intel_dp_mst_atomic_check(struct drm_connector *connector,
-		struct drm_connector_state *new_conn_state)
+static int
+intel_dp_mst_atomic_check(struct drm_connector *connector,
+			  struct drm_connector_state *new_conn_state)
 {
 	struct drm_atomic_state *state = new_conn_state->state;
-	struct drm_connector_state *old_conn_state;
-	struct drm_crtc *old_crtc;
+	struct drm_connector_state *old_conn_state =
+		drm_atomic_get_old_connector_state(state, connector);
+	struct intel_connector *intel_connector =
+		to_intel_connector(connector);
+	struct drm_crtc *new_crtc = new_conn_state->crtc;
 	struct drm_crtc_state *crtc_state;
-	int slots, ret = 0;
+	struct drm_dp_mst_topology_mgr *mgr;
+	int ret = 0;
 
-	old_conn_state = drm_atomic_get_old_connector_state(state, connector);
-	old_crtc = old_conn_state->crtc;
-	if (!old_crtc)
-		return ret;
+	if (!old_conn_state->crtc)
+		return 0;
 
-	crtc_state = drm_atomic_get_new_crtc_state(state, old_crtc);
-	slots = to_intel_crtc_state(crtc_state)->dp_m_n.tu;
-	if (drm_atomic_crtc_needs_modeset(crtc_state) && slots > 0) {
-		struct drm_dp_mst_topology_mgr *mgr;
-		struct drm_encoder *old_encoder;
+	/* We only want to free VCPI if this state disables the CRTC on this
+	 * connector
+	 */
+	if (new_crtc) {
+		crtc_state = drm_atomic_get_new_crtc_state(state, new_crtc);
 
-		old_encoder = old_conn_state->best_encoder;
-		mgr = &enc_to_mst(old_encoder)->primary->dp.mst_mgr;
-
-		ret = drm_dp_atomic_release_vcpi_slots(state, mgr, slots);
-		if (ret)
-			DRM_DEBUG_KMS("failed releasing %d vcpi slots:%d\n", slots, ret);
-		else
-			to_intel_crtc_state(crtc_state)->dp_m_n.tu = 0;
+		if (!crtc_state ||
+		    !drm_atomic_crtc_needs_modeset(crtc_state) ||
+		    crtc_state->enable)
+			return 0;
 	}
+
+	mgr = &enc_to_mst(old_conn_state->best_encoder)->primary->dp.mst_mgr;
+	ret = drm_dp_atomic_release_vcpi_slots(state, mgr,
+					       intel_connector->port);
+
 	return ret;
 }
 
@@ -313,7 +316,7 @@ static int intel_dp_mst_get_ddc_modes(struct drm_connector *connector)
 	struct edid *edid;
 	int ret;
 
-	if (!READ_ONCE(connector->registered))
+	if (drm_connector_is_unregistered(connector))
 		return intel_connector_update_modes(connector, NULL);
 
 	edid = drm_dp_mst_get_edid(connector, &intel_dp->mst_mgr, intel_connector->port);
@@ -329,7 +332,7 @@ intel_dp_mst_detect(struct drm_connector *connector, bool force)
 	struct intel_connector *intel_connector = to_intel_connector(connector);
 	struct intel_dp *intel_dp = intel_connector->mst_port;
 
-	if (!READ_ONCE(connector->registered))
+	if (drm_connector_is_unregistered(connector))
 		return connector_status_disconnected;
 	return drm_dp_mst_detect_port(connector, &intel_dp->mst_mgr,
 				      intel_connector->port);
@@ -372,7 +375,7 @@ intel_dp_mst_mode_valid(struct drm_connector *connector,
 	int bpp = 24; /* MST uses fixed bpp */
 	int max_rate, mode_rate, max_lanes, max_link_clock;
 
-	if (!READ_ONCE(connector->registered))
+	if (drm_connector_is_unregistered(connector))
 		return MODE_ERROR;
 
 	if (mode->flags & DRM_MODE_FLAG_DBLSCAN)

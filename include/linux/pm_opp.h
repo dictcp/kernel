@@ -25,6 +25,7 @@ struct opp_table;
 
 enum dev_pm_opp_event {
 	OPP_EVENT_ADD, OPP_EVENT_REMOVE, OPP_EVENT_ENABLE, OPP_EVENT_DISABLE,
+	OPP_EVENT_ADJUST_VOLTAGE,
 };
 
 /**
@@ -105,8 +106,8 @@ struct dev_pm_opp *dev_pm_opp_find_freq_exact(struct device *dev,
 
 struct dev_pm_opp *dev_pm_opp_find_freq_floor(struct device *dev,
 					      unsigned long *freq);
-struct dev_pm_opp *dev_pm_opp_find_max_freq_by_volt(struct device *dev,
-					      unsigned long u_volt);
+struct dev_pm_opp *dev_pm_opp_find_freq_ceil_by_volt(struct device *dev,
+						     unsigned long u_volt);
 
 struct dev_pm_opp *dev_pm_opp_find_freq_ceil(struct device *dev,
 					     unsigned long *freq);
@@ -116,6 +117,9 @@ int dev_pm_opp_add(struct device *dev, unsigned long freq,
 		   unsigned long u_volt);
 void dev_pm_opp_remove(struct device *dev, unsigned long freq);
 void dev_pm_opp_remove_all_dynamic(struct device *dev);
+
+int dev_pm_opp_adjust_voltage(struct device *dev, unsigned long freq,
+			      unsigned long u_volt);
 
 int dev_pm_opp_enable(struct device *dev, unsigned long freq);
 
@@ -212,8 +216,8 @@ static inline struct dev_pm_opp *dev_pm_opp_find_freq_floor(struct device *dev,
 	return ERR_PTR(-ENOTSUPP);
 }
 
-static inline struct dev_pm_opp *dev_pm_opp_find_max_freq_by_volt(struct device *dev,
-					      unsigned long u_volt)
+static inline struct dev_pm_opp *dev_pm_opp_find_freq_ceil_by_volt(struct device *dev,
+					unsigned long u_volt)
 {
 	return ERR_PTR(-ENOTSUPP);
 }
@@ -238,6 +242,13 @@ static inline void dev_pm_opp_remove(struct device *dev, unsigned long freq)
 
 static inline void dev_pm_opp_remove_all_dynamic(struct device *dev)
 {
+}
+
+static inline int
+dev_pm_opp_adjust_voltage(struct device *dev, unsigned long freq,
+			  unsigned long u_volt)
+{
+	return 0;
 }
 
 static inline int dev_pm_opp_enable(struct device *dev, unsigned long freq)

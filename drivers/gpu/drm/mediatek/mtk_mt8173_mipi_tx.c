@@ -233,6 +233,12 @@ static void mtk_mipi_tx_pll_unprepare(struct clk_hw *hw)
 			       RG_DSI_MPPLL_DIV_MSK);
 }
 
+static long mtk_mipi_tx_pll_round_rate(struct clk_hw *hw, unsigned long rate,
+				       unsigned long *prate)
+{
+	return clamp_val(rate, 50000000, 1250000000);
+}
+
 static const struct clk_ops mtk_mipi_tx_pll_ops = {
 	.prepare = mtk_mipi_tx_pll_prepare,
 	.unprepare = mtk_mipi_tx_pll_unprepare,

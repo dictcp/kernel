@@ -4,24 +4,30 @@
  *
  * Copyright 2019 Google LLC
  *
- * The Wilco Embedded Controller can return extended events that
- * are not handled by standard ACPI objects. These events can
+ * The Wilco Embedded Controller can create custom events that
+ * are not handled as standard ACPI objects. These events can
  * contain information about changes in EC controlled features,
- * such as the charger or battery getting plugged/unplugged.
- *
- * These events are triggered with an ACPI Notify(0x90) and the
- * event data buffer is read through an ACPI method provided by
- * the BIOS which reads the event buffer from EC RAM.
- *
- * These events are put into a queue which can be read by a userspace daemon
- * via a char device that implements read() and poll(). The char device
- * will appear at /dev/wilco_event{n}, where n is some small positive integer.
- *
- * To test, run the simple python script from
- * https://gist.github.com/11fa41edda69aa09e4a27f5f788d45ba
- * to poll() and read() the node. You can generate events
- * in many ways, the easiest are to press fn+Esc or to
- * plug/unplug the battery (with the AC in).
+ * such as errors and events in the dock or display. For example,
+ * an event is triggered if the dock is plugged into a display
+ * incorrectly. These events are needed for telemetry and
+ * diagnostics reasons, and for possibly alerting the user.
+
+ * These events are triggered by the EC with an ACPI Notify(0x90),
+ * and then the BIOS reads the event buffer from EC RAM via an
+ * ACPI method. When the OS receives these events via ACPI,
+ * it passes them along to this driver. The events are put into
+ * a queue which can be read by a userspace daemon via a char device
+ * that implements read() and poll(). The event queue acts as a
+ * circular buffer of size 64, so if there are no userspace consumers
+ * the kernel will not run out of memory. The char device will appear at
+ * /dev/wilco_event{n}, where n is some small non-negative integer,
+ * starting from 0. Standard ACPI events such as the battery getting
+ * plugged/unplugged can also come through this path, but they are
+ * dealt with via other paths, and are ignored here.
+
+ * To test, you can tail the binary data with
+ * $ cat /dev/wilco_event0 | hexdump -ve '1/1 "%x\n"'
+ * and then create an event by plugging/unplugging the battery.
  */
 
 #include <linux/acpi.h>
@@ -41,9 +47,9 @@
 /* ACPI Method to execute to retrieve event data buffer from the EC. */
 #define EC_ACPI_GET_EVENT		"QSET"
 /* Maximum number of words in event data returned by the EC. */
-#define EC_ACPI_MAX_EVENT_DATA		6
+#define EC_ACPI_MAX_EVENT_WORDS		6
 #define EC_ACPI_MAX_EVENT_SIZE \
-	(sizeof(struct ec_event) + (EC_ACPI_MAX_EVENT_DATA) * sizeof(u16))
+	(sizeof(struct ec_event) + (EC_ACPI_MAX_EVENT_WORDS) * sizeof(u16))
 
 /* Node will appear in /dev/EVENT_DEV_NAME */
 #define EVENT_DEV_NAME		"wilco_event"
@@ -60,9 +66,13 @@ static struct class event_class = {
 static int event_major;
 static DEFINE_IDA(event_ida);
 
+/* Size of circular queue of events. */
+#define MAX_NUM_EVENTS 64
+
 /**
  * struct event_device_data - Data for a Wilco EC device that responds to ACPI.
- * @events: Queue of EC events to be provided to userspace.
+ * @events: Circular queue of EC events to be provided to userspace.
+ * @num_events: Number of events in the queue.
  * @lock: Mutex to guard the queue.
  * @wq: Wait queue to notify processes when events or available or the
  *	device has been removed.
@@ -80,6 +90,7 @@ static DEFINE_IDA(event_ida);
  */
 struct event_device_data {
 	struct list_head events;
+	size_t num_events;
 	struct mutex lock;
 	wait_queue_head_t wq;
 	struct device dev;
@@ -92,7 +103,7 @@ struct event_device_data {
  * struct ec_event - Extended event returned by the EC.
  * @size: Number of words in structure after the size word.
  * @type: Extended event type from &enum ec_event_type.
- * @event: Event data words.  Max count is %EC_ACPI_MAX_EVENT_DATA.
+ * @event: Event data words.  Max count is %EC_ACPI_MAX_EVENT_WORDS.
  */
 struct ec_event {
 	u16 size;
@@ -130,7 +141,7 @@ static int enqueue_events(struct acpi_device *adev, const u8 *buf, u32 length)
 {
 	struct event_device_data *dev_data = adev->driver_data;
 	struct ec_event *event;
-	struct ec_event_entry *entry;
+	struct ec_event_entry *entry, *oldest_entry;
 	size_t event_size, num_words, word_size;
 	u32 offset = 0;
 
@@ -143,9 +154,9 @@ static int enqueue_events(struct acpi_device *adev, const u8 *buf, u32 length)
 		num_words = event->size - 1;
 		word_size = num_words * sizeof(u16);
 		event_size = sizeof(*event) + word_size;
-		if (num_words > EC_ACPI_MAX_EVENT_DATA) {
+		if (num_words > EC_ACPI_MAX_EVENT_WORDS) {
 			dev_err(&adev->dev, "Too many event words: %zu > %d\n",
-				num_words, EC_ACPI_MAX_EVENT_DATA);
+				num_words, EC_ACPI_MAX_EVENT_WORDS);
 			return -EOVERFLOW;
 		};
 
@@ -167,9 +178,22 @@ static int enqueue_events(struct acpi_device *adev, const u8 *buf, u32 length)
 		entry->size = event_size;
 		memcpy(&entry->event, event, entry->size);
 
-		/* Add this event to the queue */
 		mutex_lock(&dev_data->lock);
+
+		/* If the queue is full, delete the oldest event */
+		if (dev_data->num_events >= MAX_NUM_EVENTS) {
+			oldest_entry = list_first_entry(&dev_data->events,
+						      struct ec_event_entry,
+						      list);
+			list_del(&oldest_entry->list);
+			kfree(oldest_entry);
+			dev_data->num_events--;
+		}
+
+		/* Add this event to the queue */
 		list_add_tail(&entry->list, &dev_data->events);
+		dev_data->num_events++;
+
 		mutex_unlock(&dev_data->lock);
 	}
 
@@ -226,7 +250,7 @@ static void event_device_notify(struct acpi_device *adev, u32 value)
 	enqueue_events(adev, obj->buffer.pointer, obj->buffer.length);
 	kfree(obj);
 
-	if (!list_empty(&dev_data->events))
+	if (dev_data->num_events)
 		wake_up_interruptible(&dev_data->wq);
 }
 
@@ -257,7 +281,7 @@ static __poll_t event_poll(struct file *filp, poll_table *wait)
 	poll_wait(filp, &dev_data->wq, wait);
 	if (!dev_data->exist)
 		return EPOLLHUP;
-	if (!list_empty(&dev_data->events))
+	if (dev_data->num_events)
 		mask |= EPOLLIN | EPOLLRDNORM | EPOLLPRI;
 	return mask;
 }
@@ -293,7 +317,7 @@ static ssize_t event_read(struct file *filp, char __user *buf, size_t count,
 
 	mutex_lock(&dev_data->lock);
 
-	while (list_empty(&dev_data->events)) {
+	while (dev_data->num_events == 0) {
 		if (filp->f_flags & O_NONBLOCK) {
 			mutex_unlock(&dev_data->lock);
 			return -EAGAIN;
@@ -304,7 +328,7 @@ static ssize_t event_read(struct file *filp, char __user *buf, size_t count,
 		 */
 		mutex_unlock(&dev_data->lock);
 		err = wait_event_interruptible(dev_data->wq,
-					       !list_empty(&dev_data->events));
+					       dev_data->num_events);
 		if (err)
 			return err;
 
@@ -321,6 +345,7 @@ static ssize_t event_read(struct file *filp, char __user *buf, size_t count,
 		return -EFAULT;
 	list_del(&entry->list);
 	kfree(entry);
+	dev_data->num_events--;
 
 	mutex_unlock(&dev_data->lock);
 
@@ -390,7 +415,6 @@ static void hangup_device(struct event_device_data *dev_data)
 static int event_device_add(struct acpi_device *adev)
 {
 	struct event_device_data *dev_data;
-	dev_t dev_num;
 	int error, minor;
 
 	minor = ida_alloc_max(&event_ida, EVENT_MAX_DEV-1, GFP_KERNEL);
@@ -415,8 +439,7 @@ static int event_device_add(struct acpi_device *adev)
 	atomic_set(&dev_data->available, 1);
 
 	/* Initialize the device. */
-	dev_num = MKDEV(event_major, minor);
-	dev_data->dev.devt = dev_num;
+	dev_data->dev.devt = MKDEV(event_major, minor);
 	dev_data->dev.class = &event_class;
 	dev_data->dev.release = free_device_data;
 	dev_set_name(&dev_data->dev, EVENT_DEV_NAME_FMT, minor);
@@ -473,21 +496,21 @@ static int __init event_module_init(void)
 
 	ret = class_register(&event_class);
 	if (ret) {
-		pr_warn(DRV_NAME ": Failed registering class: %d", ret);
+		pr_err(DRV_NAME ": Failed registering class: %d", ret);
 		return ret;
 	}
 
 	/* Request device numbers, starting with minor=0. Save the major num. */
 	ret = alloc_chrdev_region(&dev_num, 0, EVENT_MAX_DEV, EVENT_DEV_NAME);
 	if (ret) {
-		pr_warn(DRV_NAME ": Failed allocating dev numbers: %d", ret);
+		pr_err(DRV_NAME ": Failed allocating dev numbers: %d", ret);
 		goto destroy_class;
 	}
 	event_major = MAJOR(dev_num);
 
 	ret = acpi_bus_register_driver(&event_driver);
 	if (ret < 0) {
-		pr_warn(DRV_NAME ": Failed registering driver: %d\n", ret);
+		pr_err(DRV_NAME ": Failed registering driver: %d\n", ret);
 		goto unregister_region;
 	}
 
@@ -514,5 +537,5 @@ module_exit(event_module_exit);
 
 MODULE_AUTHOR("Nick Crews <ncrews@chromium.org>");
 MODULE_DESCRIPTION("Wilco EC ACPI event driver");
-MODULE_LICENSE("GPL v2");
+MODULE_LICENSE("GPL");
 MODULE_ALIAS("platform:" DRV_NAME);

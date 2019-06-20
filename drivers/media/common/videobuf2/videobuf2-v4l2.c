@@ -368,6 +368,12 @@ static int vb2_queue_or_prepare_buf(struct vb2_queue *q, struct media_device *md
 	if (ret)
 		return ret;
 
+	if (!is_prepare && (b->flags & V4L2_BUF_FLAG_REQUEST_FD) &&
+	    vb->state != VB2_BUF_STATE_DEQUEUED) {
+		dprintk(1, "%s: buffer is not in dequeued state\n", opname);
+		return -EINVAL;
+	}
+
 	if (!vb->prepared) {
 		/* Copy relevant information provided by the userspace */
 		memset(vbuf->planes, 0,
@@ -381,6 +387,10 @@ static int vb2_queue_or_prepare_buf(struct vb2_queue *q, struct media_device *md
 		return 0;
 
 	if (!(b->flags & V4L2_BUF_FLAG_REQUEST_FD)) {
+		if (q->requires_requests) {
+			dprintk(1, "%s: queue requires requests\n", opname);
+			return -EBADR;
+		}
 		if (q->uses_requests) {
 			dprintk(1, "%s: queue uses requests\n", opname);
 			return -EBUSY;
@@ -388,7 +398,7 @@ static int vb2_queue_or_prepare_buf(struct vb2_queue *q, struct media_device *md
 		return 0;
 	} else if (!q->supports_requests) {
 		dprintk(1, "%s: queue does not support requests\n", opname);
-		return -EACCES;
+		return -EBADR;
 	} else if (q->uses_qbuf) {
 		dprintk(1, "%s: queue does not use requests\n", opname);
 		return -EBUSY;
@@ -409,11 +419,15 @@ static int vb2_queue_or_prepare_buf(struct vb2_queue *q, struct media_device *md
 	 */
 	if (WARN_ON(!q->ops->buf_request_complete))
 		return -EINVAL;
-
-	if (vb->state != VB2_BUF_STATE_DEQUEUED) {
-		dprintk(1, "%s: buffer is not in dequeued state\n", opname);
+	/*
+	 * Make sure this op is implemented by the driver for the output queue.
+	 * It's easy to forget this callback, but is it important to correctly
+	 * validate the 'field' value at QBUF time.
+	 */
+	if (WARN_ON((q->type == V4L2_BUF_TYPE_VIDEO_OUTPUT ||
+		     q->type == V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE) &&
+		    !q->ops->buf_out_validate))
 		return -EINVAL;
-	}
 
 	if (b->request_fd < 0) {
 		dprintk(1, "%s: request_fd < 0\n", opname);
@@ -534,7 +548,6 @@ static void __fill_v4l2_buffer(struct vb2_buffer *vb, void *pb)
 		break;
 	case VB2_BUF_STATE_PREPARING:
 	case VB2_BUF_STATE_DEQUEUED:
-	case VB2_BUF_STATE_REQUEUEING:
 		/* nothing */
 		break;
 	}
@@ -595,7 +608,8 @@ int vb2_find_timestamp(const struct vb2_queue *q, u64 timestamp,
 	unsigned int i;
 
 	for (i = start_idx; i < q->num_buffers; i++)
-		if (q->bufs[i]->timestamp == timestamp)
+		if (q->bufs[i]->copied_timestamp &&
+		    q->bufs[i]->timestamp == timestamp)
 			return i;
 	return -1;
 }
@@ -857,16 +871,14 @@ EXPORT_SYMBOL_GPL(vb2_queue_release);
 __poll_t vb2_poll(struct vb2_queue *q, struct file *file, poll_table *wait)
 {
 	struct video_device *vfd = video_devdata(file);
-	__poll_t req_events = poll_requested_events(wait);
 	__poll_t res = 0;
 
 	if (test_bit(V4L2_FL_USES_V4L2_FH, &vfd->flags)) {
 		struct v4l2_fh *fh = file->private_data;
 
+		poll_wait(file, &fh->wait, wait);
 		if (v4l2_event_pending(fh))
 			res = EPOLLPRI;
-		else if (req_events & EPOLLPRI)
-			poll_wait(file, &fh->wait, wait);
 	}
 
 	return res | vb2_core_poll(q, file, wait);

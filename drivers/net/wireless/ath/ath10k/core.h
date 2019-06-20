@@ -461,6 +461,36 @@ struct ath10k_sta_tid_stats {
 	unsigned long int rx_pkt_amsdu[ATH10K_AMSDU_SUBFRM_NUM_MAX];
 };
 
+enum ath10k_counter_type {
+	ATH10K_COUNTER_TYPE_BYTES,
+	ATH10K_COUNTER_TYPE_PKTS,
+	ATH10K_COUNTER_TYPE_MAX,
+};
+
+enum ath10k_stats_type {
+	ATH10K_STATS_TYPE_SUCC,
+	ATH10K_STATS_TYPE_FAIL,
+	ATH10K_STATS_TYPE_RETRY,
+	ATH10K_STATS_TYPE_AMPDU,
+	ATH10K_STATS_TYPE_MAX,
+};
+
+struct ath10k_htt_data_stats {
+	u64 legacy[ATH10K_COUNTER_TYPE_MAX][ATH10K_LEGACY_NUM];
+	u64 ht[ATH10K_COUNTER_TYPE_MAX][ATH10K_HT_MCS_NUM];
+	u64 vht[ATH10K_COUNTER_TYPE_MAX][ATH10K_VHT_MCS_NUM];
+	u64 bw[ATH10K_COUNTER_TYPE_MAX][ATH10K_BW_NUM];
+	u64 nss[ATH10K_COUNTER_TYPE_MAX][ATH10K_NSS_NUM];
+	u64 gi[ATH10K_COUNTER_TYPE_MAX][ATH10K_GI_NUM];
+};
+
+struct ath10k_htt_tx_stats {
+	struct ath10k_htt_data_stats stats[ATH10K_STATS_TYPE_MAX];
+	u64 tx_duration;
+	u64 ba_fails;
+	u64 ack_fails;
+};
+
 struct ath10k_sta {
 	struct ath10k_vif *arvif;
 
@@ -474,6 +504,7 @@ struct ath10k_sta {
 
 	struct work_struct update_wk;
 	u64 rx_duration;
+	struct ath10k_htt_tx_stats *tx_stats;
 
 #ifdef CONFIG_MAC80211_DEBUGFS
 	/* protected by conf_mutex */
@@ -482,6 +513,8 @@ struct ath10k_sta {
 	/* Protected with ar->data_lock */
 	struct ath10k_sta_tid_stats tid_stats[IEEE80211_NUM_TIDS + 1];
 #endif
+	/* Protected with ar->data_lock */
+	u32 peer_ps_state;
 };
 
 #define ATH10K_VDEV_SETUP_TIMEOUT_HZ (5 * HZ)
@@ -591,6 +624,7 @@ struct ath10k_debug {
 	bool fw_stats_done;
 
 	unsigned long htt_stats_mask;
+	unsigned long reset_htt_stats;
 	struct delayed_work htt_stats_dwork;
 	struct ath10k_dfs_stats dfs_stats;
 	struct ath_dfs_pool_stats dfs_pool_stats;
@@ -607,6 +641,7 @@ struct ath10k_debug {
 	u32 reg_addr;
 	u32 nf_cal_period;
 	void *cal_data;
+	u32 enable_extd_tx_stats;
 };
 
 enum ath10k_state {
@@ -924,6 +959,8 @@ struct ath10k {
 	u32 low_5ghz_chan;
 	u32 high_5ghz_chan;
 	bool ani_enabled;
+	/* protected by conf_mutex */
+	u8 ps_state_enable;
 
 	bool p2p;
 
@@ -1029,6 +1066,9 @@ struct ath10k {
 
 	/* prevents concurrent FW reconfiguration */
 	struct mutex conf_mutex;
+
+	/* protects coredump data */
+	struct mutex dump_mutex;
 
 	/* protects shared structure data */
 	spinlock_t data_lock;
