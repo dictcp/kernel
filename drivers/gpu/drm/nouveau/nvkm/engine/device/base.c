@@ -1316,7 +1316,8 @@ nvaf_chipset = {
 	.i2c = g94_i2c_new,
 	.imem = nv50_instmem_new,
 	.mc = gt215_mc_new,
-	.mmu = g84_mmu_new,
+	/* Neverware: fix WebGL on MacBook 7,1 [OVER-9882] */
+	.mmu = mcp77_mmu_new,
 	.mxm = nv50_mxm_new,
 	.pci = g94_pci_new,
 	.pmu = gt215_pmu_new,
