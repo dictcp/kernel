@@ -586,6 +586,8 @@ evdi_painter_connect(struct evdi_device *evdi,
 	evdi->dev_index = dev_index;
 	evdi->sku_area_limit = sku_area_limit;
 	painter->drm_filp = file;
+	EVDI_DEBUG("(dev=%d) freeing existing edid %p\n", evdi->dev_index,
+			painter->edid);
 	kfree(painter->edid);
 	painter->edid_length = edid_length;
 	painter->edid = new_edid;
