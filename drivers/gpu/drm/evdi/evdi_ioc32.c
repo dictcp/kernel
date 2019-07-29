@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-2.0-only
-/**
+/*
  * evdi_ioc32.c
  *
  * Copyright (c) 2016 The Chromium OS Authors
- * Copyright (c) 2018 DisplayLink (UK) Ltd.
+ * Copyright (c) 2017 DisplayLink (UK) Ltd.
  *
  * This program is free software; you can redistribute  it and/or modify it
  * under  the terms of  the GNU General  Public License as published by the
@@ -23,7 +23,7 @@
 
 #include <drm/drmP.h>
 #include <drm/drm_edid.h>
-#include <uapi/drm/evdi_drm.h>
+#include "evdi_drm.h"
 
 #include "evdi_drv.h"
 

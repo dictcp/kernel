@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (C) 2012 Red Hat
- * Copyright (c) 2015 - 2018 DisplayLink (UK) Ltd.
+ * Copyright (c) 2015 - 2017 DisplayLink (UK) Ltd.
  *
  * Based on parts on udlfb.c:
  * Copyright (C) 2009 its respective authors
@@ -15,7 +15,7 @@
 #include <drm/drm_crtc.h>
 #include <drm/drm_edid.h>
 #include <drm/drm_crtc_helper.h>
-#include <drm/drm_atomic_helper.h>
+#include <linux/version.h>
 #include "evdi_drv.h"
 
 /*
@@ -32,11 +32,11 @@ static int evdi_get_modes(struct drm_connector *connector)
 	edid = (struct edid *)evdi_painter_get_edid_copy(evdi);
 
 	if (!edid) {
-		drm_connector_update_edid_property(connector, NULL);
+		drm_mode_connector_update_edid_property(connector, NULL);
 		return 0;
 	}
 
-	ret = drm_connector_update_edid_property(connector, edid);
+	ret = drm_mode_connector_update_edid_property(connector, edid);
 	if (!ret)
 		drm_add_edid_modes(connector, edid);
 	else
@@ -46,7 +46,7 @@ static int evdi_get_modes(struct drm_connector *connector)
 	return ret;
 }
 
-static int evdi_mode_valid(struct drm_connector *connector,
+static enum drm_mode_status evdi_mode_valid(struct drm_connector *connector,
 			   struct drm_display_mode *mode)
 {
 	struct evdi_device *evdi = connector->dev->dev_private;
@@ -56,8 +56,7 @@ static int evdi_mode_valid(struct drm_connector *connector,
 		return MODE_OK;
 
 	if (mode_area > evdi->sku_area_limit) {
-		EVDI_WARN("(dev=%d) Mode %dx%d@%d rejected\n",
-			evdi->dev_index,
+		EVDI_WARN("Mode %dx%d@%d rejected\n",
 			mode->hdisplay,
 			mode->vdisplay,
 			drm_mode_vrefresh(mode));
@@ -77,13 +76,37 @@ evdi_detect(struct drm_connector *connector, __always_unused bool force)
 		EVDI_DEBUG("(dev=%d) Painter is connected\n", evdi->dev_index);
 		return connector_status_connected;
 	}
-	EVDI_DEBUG("(dev=%d) Painter is disconnected\n", evdi->dev_index);
+	EVDI_DEBUG("Painter is disconnected\n");
 	return connector_status_disconnected;
+}
+
+static struct drm_encoder *evdi_best_single_encoder(struct drm_connector
+						    *connector)
+{
+	int enc_id = connector->encoder_ids[0];
+
+	return drm_encoder_find(connector->dev,
+#if KERNEL_VERSION(4, 15, 0) <= LINUX_VERSION_CODE
+				 NULL,
+#endif
+				 enc_id);
+}
+
+static int evdi_connector_set_property(
+			__always_unused struct drm_connector *connector,
+			__always_unused struct drm_property *property,
+			__always_unused uint64_t val)
+{
+	return 0;
 }
 
 static void evdi_connector_destroy(struct drm_connector *connector)
 {
+#if KERNEL_VERSION(3, 17, 0) <= LINUX_VERSION_CODE
 	drm_connector_unregister(connector);
+#else
+	drm_sysfs_connector_remove(connector);
+#endif
 	drm_connector_cleanup(connector);
 	kfree(connector);
 }
@@ -91,15 +114,15 @@ static void evdi_connector_destroy(struct drm_connector *connector)
 static struct drm_connector_helper_funcs evdi_connector_helper_funcs = {
 	.get_modes = evdi_get_modes,
 	.mode_valid = evdi_mode_valid,
+	.best_encoder = evdi_best_single_encoder,
 };
 
 static const struct drm_connector_funcs evdi_connector_funcs = {
+	.dpms = drm_helper_connector_dpms,
 	.detect = evdi_detect,
 	.fill_modes = drm_helper_probe_single_connector_modes,
 	.destroy = evdi_connector_destroy,
-	.reset = drm_atomic_helper_connector_reset,
-	.atomic_duplicate_state = drm_atomic_helper_connector_duplicate_state,
-	.atomic_destroy_state = drm_atomic_helper_connector_destroy_state
+	.set_property = evdi_connector_set_property,
 };
 
 int evdi_connector_init(struct drm_device *dev, struct drm_encoder *encoder)
@@ -116,8 +139,17 @@ int evdi_connector_init(struct drm_device *dev, struct drm_encoder *encoder)
 	drm_connector_helper_add(connector, &evdi_connector_helper_funcs);
 	connector->polled = DRM_CONNECTOR_POLL_HPD;
 
+#if KERNEL_VERSION(3, 17, 0) <= LINUX_VERSION_CODE
 	drm_connector_register(connector);
-	drm_connector_attach_encoder(connector, encoder);
+#else
+	drm_sysfs_connector_add(connector);
+#endif
+	drm_mode_connector_attach_encoder(connector, encoder);
+
+#if KERNEL_VERSION(4, 9, 0) > LINUX_VERSION_CODE
+	drm_object_attach_property(&connector->base,
+				   dev->mode_config.dirty_info_property, 1);
+#endif
 
 	return 0;
 }
