@@ -15,7 +15,6 @@
 #include <drm/drm_crtc.h>
 #include <drm/drm_edid.h>
 #include <drm/drm_crtc_helper.h>
-#include <linux/version.h>
 #include "evdi_drv.h"
 
 /*
@@ -32,11 +31,11 @@ static int evdi_get_modes(struct drm_connector *connector)
 	edid = (struct edid *)evdi_painter_get_edid_copy(evdi);
 
 	if (!edid) {
-		drm_mode_connector_update_edid_property(connector, NULL);
+		drm_connector_update_edid_property(connector, NULL);
 		return 0;
 	}
 
-	ret = drm_mode_connector_update_edid_property(connector, edid);
+	ret = drm_connector_update_edid_property(connector, edid);
 	if (!ret)
 		drm_add_edid_modes(connector, edid);
 	else
@@ -56,7 +55,8 @@ static enum drm_mode_status evdi_mode_valid(struct drm_connector *connector,
 		return MODE_OK;
 
 	if (mode_area > evdi->sku_area_limit) {
-		EVDI_WARN("Mode %dx%d@%d rejected\n",
+		EVDI_WARN("(dev=%d) Mode %dx%d@%d rejected\n",
+			evdi->dev_index,
 			mode->hdisplay,
 			mode->vdisplay,
 			drm_mode_vrefresh(mode));
@@ -76,7 +76,7 @@ evdi_detect(struct drm_connector *connector, __always_unused bool force)
 		EVDI_DEBUG("(dev=%d) Painter is connected\n", evdi->dev_index);
 		return connector_status_connected;
 	}
-	EVDI_DEBUG("Painter is disconnected\n");
+	EVDI_DEBUG("(dev=%d) Painter is disconnected\n", evdi->dev_index);
 	return connector_status_disconnected;
 }
 
@@ -86,9 +86,7 @@ static struct drm_encoder *evdi_best_single_encoder(struct drm_connector
 	int enc_id = connector->encoder_ids[0];
 
 	return drm_encoder_find(connector->dev,
-#if KERNEL_VERSION(4, 15, 0) <= LINUX_VERSION_CODE
 				 NULL,
-#endif
 				 enc_id);
 }
 
@@ -102,11 +100,7 @@ static int evdi_connector_set_property(
 
 static void evdi_connector_destroy(struct drm_connector *connector)
 {
-#if KERNEL_VERSION(3, 17, 0) <= LINUX_VERSION_CODE
 	drm_connector_unregister(connector);
-#else
-	drm_sysfs_connector_remove(connector);
-#endif
 	drm_connector_cleanup(connector);
 	kfree(connector);
 }
@@ -139,17 +133,8 @@ int evdi_connector_init(struct drm_device *dev, struct drm_encoder *encoder)
 	drm_connector_helper_add(connector, &evdi_connector_helper_funcs);
 	connector->polled = DRM_CONNECTOR_POLL_HPD;
 
-#if KERNEL_VERSION(3, 17, 0) <= LINUX_VERSION_CODE
 	drm_connector_register(connector);
-#else
-	drm_sysfs_connector_add(connector);
-#endif
-	drm_mode_connector_attach_encoder(connector, encoder);
-
-#if KERNEL_VERSION(4, 9, 0) > LINUX_VERSION_CODE
-	drm_object_attach_property(&connector->base,
-				   dev->mode_config.dirty_info_property, 1);
-#endif
+	drm_connector_attach_encoder(connector, encoder);
 
 	return 0;
 }

@@ -9,10 +9,9 @@
 
 #include <drm/drmP.h>
 #include <drm/drm_edid.h>
-#include "evdi_drm.h"
+#include <uapi/drm/evdi_drm.h>
 #include "evdi_drv.h"
 #include "evdi_cursor.h"
-#include "evdi_params.h"
 #include <linux/mutex.h>
 #include <linux/compiler.h>
 
@@ -120,11 +119,11 @@ static void collapse_dirty_rects(struct drm_clip_rect *rects, int *count)
 }
 
 static int copy_primary_pixels(struct evdi_framebuffer *ufb,
-			char __user *buffer,
-			int buf_byte_stride,
-			int num_rects, struct drm_clip_rect *rects,
-			int const max_x,
-			int const max_y)
+			       char __user *buffer,
+			       int buf_byte_stride,
+			       int num_rects, struct drm_clip_rect *rects,
+			       int const max_x,
+			       int const max_y)
 {
 	struct drm_framebuffer *fb = &ufb->base;
 	struct drm_clip_rect *r;
@@ -238,10 +237,6 @@ static void evdi_painter_send_update_ready(struct evdi_painter *painter)
 		event->update_ready.base.length = sizeof(event->update_ready);
 		event->base.event = &event->update_ready.base;
 		event->base.file_priv = painter->drm_filp;
-#if KERNEL_VERSION(4, 8, 0) > LINUX_VERSION_CODE
-		event->base.destroy =
-		    (void (*)(struct drm_pending_event *))kfree;
-#endif
 		evdi_painter_send_event(painter->drm_filp, &event->base.link);
 	} else {
 		EVDI_WARN("Painter is not connected!");
@@ -305,13 +300,8 @@ void evdi_painter_send_cursor_set(struct evdi_painter *painter,
 		}
 		evdi_cursor_unlock(cursor);
 
-
 		event->base.event = &event->cursor_set.base;
 		event->base.file_priv = painter->drm_filp;
-#if KERNEL_VERSION(4, 8, 0) > LINUX_VERSION_CODE
-		event->base.destroy =
-		    (void (*)(struct drm_pending_event *))kfree;
-#endif
 		evdi_painter_send_event(painter->drm_filp, &event->base.link);
 	} else {
 		EVDI_WARN("Painter is not connected!");
@@ -337,10 +327,6 @@ void evdi_painter_send_cursor_move(struct evdi_painter *painter,
 
 		event->base.event = &event->cursor_move.base;
 		event->base.file_priv = painter->drm_filp;
-#if KERNEL_VERSION(4, 8, 0) > LINUX_VERSION_CODE
-		event->base.destroy =
-		    (void (*)(struct drm_pending_event *))kfree;
-#endif
 		evdi_painter_send_event(painter->drm_filp, &event->base.link);
 	} else {
 		EVDI_WARN("Painter is not connected!");
@@ -358,10 +344,6 @@ static void evdi_painter_send_dpms(struct evdi_painter *painter, int mode)
 		event->dpms.mode = mode;
 		event->base.event = &event->dpms.base;
 		event->base.file_priv = painter->drm_filp;
-#if KERNEL_VERSION(4, 8, 0) > LINUX_VERSION_CODE
-		event->base.destroy =
-		    (void (*)(struct drm_pending_event *))kfree;
-#endif
 		evdi_painter_send_event(painter->drm_filp, &event->base.link);
 	} else {
 		EVDI_WARN("Painter is not connected!");
@@ -380,10 +362,6 @@ static void evdi_painter_send_crtc_state(struct evdi_painter *painter,
 		event->crtc_state.state = state;
 		event->base.event = &event->crtc_state.base;
 		event->base.file_priv = painter->drm_filp;
-#if KERNEL_VERSION(4, 8, 0) > LINUX_VERSION_CODE
-		event->base.destroy =
-		    (void (*)(struct drm_pending_event *))kfree;
-#endif
 		evdi_painter_send_event(painter->drm_filp, &event->base.link);
 	} else {
 		EVDI_WARN("Painter is not connected!");
@@ -412,10 +390,6 @@ static void evdi_painter_send_mode_changed(
 
 		event->base.event = &event->mode_changed.base;
 		event->base.file_priv = painter->drm_filp;
-#if KERNEL_VERSION(4, 8, 0) > LINUX_VERSION_CODE
-		event->base.destroy =
-		    (void (*)(struct drm_pending_event *))kfree;
-#endif
 		evdi_painter_send_event(painter->drm_filp, &event->base.link);
 	} else {
 		EVDI_WARN("Painter is not connected!");
@@ -432,7 +406,8 @@ void evdi_painter_mark_dirty(struct evdi_device *evdi,
 	painter_lock(evdi->painter);
 	efb = evdi->painter->scanout_fb;
 	if (!efb) {
-		EVDI_WARN("Skip clip rect. Scanout buffer not set.\n");
+		EVDI_WARN("(dev=%d) Skip clip rect. Scanout buffer not set.\n",
+			  evdi->dev_index);
 		goto unlock;
 	}
 
@@ -493,13 +468,8 @@ void evdi_painter_mode_changed_notify(struct evdi_device *evdi,
 {
 	struct evdi_painter *painter = evdi->painter;
 
-#if KERNEL_VERSION(4, 11, 0) > LINUX_VERSION_CODE
-	int bits_per_pixel = fb->bits_per_pixel;
-	uint32_t pixel_format = fb->pixel_format;
-#else
 	int bits_per_pixel = fb->format->cpp[0] * 8;
 	uint32_t pixel_format = fb->format->format;
-#endif
 
 	EVDI_DEBUG(
 		"(dev=%d) Notifying mode changed: %dx%d@%d; bpp %d; ",
@@ -594,7 +564,6 @@ static void evdi_painter_disconnect(struct evdi_device *evdi,
 		    ("(dev=%d) An unknown connection to %p tries to close us",
 		     evdi->dev_index, file);
 		EVDI_WARN(" - ignoring\n");
-
 
 		painter_unlock(painter);
 		return;
@@ -735,12 +704,12 @@ int evdi_painter_grabpix_ioctl(struct drm_device *drm_dev, void *data,
 			err = -EFAULT;
 		if (err == 0)
 			err = copy_primary_pixels(efb,
-					cmd->buffer,
-					cmd->buf_byte_stride,
-					painter->num_dirts,
-					painter->dirty_rects,
-					cmd->buf_width,
-					cmd->buf_height);
+						  cmd->buffer,
+						  cmd->buf_byte_stride,
+						  painter->num_dirts,
+						  painter->dirty_rects,
+						  cmd->buf_width,
+						  cmd->buf_height);
 		if (err == 0)
 			err = copy_cursor_pixels(efb,
 					cmd->buffer,

@@ -11,17 +11,13 @@
  * more details.
  */
 
-#include <linux/version.h>
 #include <drm/drmP.h>
 #include <drm/drm_crtc.h>
 #include <drm/drm_crtc_helper.h>
-#if KERNEL_VERSION(3, 17, 0) <= LINUX_VERSION_CODE
 #include <drm/drm_plane_helper.h>
-#endif
-#include "evdi_drm.h"
+#include <uapi/drm/evdi_drm.h>
 #include "evdi_drv.h"
 #include "evdi_cursor.h"
-#include "evdi_params.h"
 
 struct evdi_flip_queue {
 	struct mutex lock;
@@ -148,28 +144,17 @@ static void evdi_sched_page_flip(struct work_struct *work)
 		unsigned long flags = 0;
 
 		spin_lock_irqsave(&dev->event_lock, flags);
-#if KERNEL_VERSION(4, 8, 0) > LINUX_VERSION_CODE
-		drm_send_vblank_event(dev, 0, event);
-#else
 		drm_crtc_send_vblank_event(crtc, event);
-#endif
 		spin_unlock_irqrestore(&dev->event_lock, flags);
 	}
 }
 
-#if KERNEL_VERSION(4, 12, 0) > LINUX_VERSION_CODE
-static int evdi_crtc_page_flip(struct drm_crtc *crtc,
-			       struct drm_framebuffer *fb,
-			       struct drm_pending_vblank_event *event,
-			       __always_unused uint32_t page_flip_flags)
-#else
 static int evdi_crtc_page_flip(
 	struct drm_crtc *crtc,
 	struct drm_framebuffer *fb,
 	struct drm_pending_vblank_event *event,
 	__always_unused uint32_t page_flip_flags,
 	__always_unused struct drm_modeset_acquire_ctx *ctx)
-#endif
 {
 	struct drm_device *dev = crtc->dev;
 	struct evdi_device *evdi = dev->dev_private;
@@ -203,11 +188,7 @@ static int evdi_crtc_page_flip(
 			unsigned long flags = 0;
 
 			spin_lock_irqsave(&dev->event_lock, flags);
-#if KERNEL_VERSION(4, 8, 0) > LINUX_VERSION_CODE
-			drm_send_vblank_event(dev, 0, flip_queue->event);
-#else
 			drm_crtc_send_vblank_event(crtc, flip_queue->event);
-#endif
 			spin_unlock_irqrestore(&dev->event_lock, flags);
 		}
 		flip_queue->event = event;
@@ -238,7 +219,6 @@ static int evdi_crtc_cursor_set(struct drm_crtc *crtc,
 	struct evdi_device *evdi = dev->dev_private;
 	struct drm_gem_object *obj = NULL;
 	struct evdi_gem_object *eobj = NULL;
-	int ret;
 	/*
 	 * evdi_crtc_cursor_set is callback function using
 	 * deprecated cursor entry point.
@@ -257,11 +237,7 @@ static int evdi_crtc_cursor_set(struct drm_crtc *crtc,
 	EVDI_CHECKPT();
 	if (handle) {
 		mutex_lock(&dev->struct_mutex);
-#if KERNEL_VERSION(4, 7, 0) > LINUX_VERSION_CODE
-		obj = drm_gem_object_lookup(crtc->dev, file, handle);
-#else
 		obj = drm_gem_object_lookup(file, handle);
-#endif
 		if (obj)
 			eobj = to_evdi_bo(obj);
 		else
@@ -269,25 +245,17 @@ static int evdi_crtc_cursor_set(struct drm_crtc *crtc,
 		mutex_unlock(&dev->struct_mutex);
 	}
 
-	ret = evdi_cursor_set(evdi->cursor,
-			      eobj, width, height, hot_x, hot_y,
-			      format, stride);
+	evdi_cursor_set(evdi->cursor,
+			eobj, width, height, hot_x, hot_y,
+			format, stride);
 	drm_gem_object_unreference_unlocked(obj);
-	if (ret) {
-		EVDI_ERROR("Failed to set evdi cursor\n");
-		return ret;
-	}
 
 	/*
 	 * For now we don't care whether the application wanted the mouse set,
 	 * or not.
 	 */
 	if (evdi_enable_cursor_blending)
-#if KERNEL_VERSION(4, 12, 0) > LINUX_VERSION_CODE
-		return evdi_crtc_page_flip(crtc, NULL, NULL, 0);
-#else
 		return evdi_crtc_page_flip(crtc, NULL, NULL, 0, NULL);
-#endif
 	evdi_painter_send_cursor_set(evdi->painter, evdi->cursor);
 	return 0;
 }
@@ -300,11 +268,7 @@ static int evdi_crtc_cursor_move(struct drm_crtc *crtc, int x, int y)
 	evdi_cursor_move(evdi->cursor, x, y);
 
 	if (evdi_enable_cursor_blending)
-#if KERNEL_VERSION(4, 12, 0) > LINUX_VERSION_CODE
-		return evdi_crtc_page_flip(crtc, NULL, NULL, 0);
-#else
 		return evdi_crtc_page_flip(crtc, NULL, NULL, 0, NULL);
-#endif
 
 	evdi_painter_send_cursor_move(evdi->painter, evdi->cursor);
 	return 0;
@@ -420,17 +384,7 @@ int evdi_modeset_init(struct drm_device *dev)
 
 	dev->mode_config.funcs = &evdi_mode_funcs;
 
-#if KERNEL_VERSION(4, 9, 0) > LINUX_VERSION_CODE
-	drm_mode_create_dirty_info_property(dev);
-#endif
-
-#if KERNEL_VERSION(4, 8, 0) <= LINUX_VERSION_CODE
-
-#elif KERNEL_VERSION(4, 5, 0) <= LINUX_VERSION_CODE
 	drm_dev_set_unique(dev, dev_name(dev->dev));
-#elif KERNEL_VERSION(3, 16, 0) <= LINUX_VERSION_CODE
-	drm_dev_set_unique(dev, "%s", dev_name(dev->dev));
-#endif
 	evdi_crtc_init(dev);
 
 	encoder = evdi_encoder_init(dev);

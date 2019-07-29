@@ -14,8 +14,7 @@
 #include <linux/platform_device.h>
 
 #include "evdi_drv.h"
-#include "evdi_drm.h"
-#include "evdi_params.h"
+#include <uapi/drm/evdi_drm.h>
 #include "evdi_debug.h"
 
 MODULE_AUTHOR("DisplayLink (UK) Ltd.");
@@ -34,11 +33,12 @@ static struct drm_driver driver;
 
 struct drm_ioctl_desc evdi_painter_ioctls[] = {
 	DRM_IOCTL_DEF_DRV(EVDI_CONNECT, evdi_painter_connect_ioctl,
-			  DRM_UNLOCKED),
+				DRM_UNLOCKED),
 	DRM_IOCTL_DEF_DRV(EVDI_REQUEST_UPDATE,
-			  evdi_painter_request_update_ioctl, DRM_UNLOCKED),
+				evdi_painter_request_update_ioctl,
+				DRM_UNLOCKED),
 	DRM_IOCTL_DEF_DRV(EVDI_GRABPIX, evdi_painter_grabpix_ioctl,
-			  DRM_UNLOCKED),
+				DRM_UNLOCKED),
 };
 
 static const struct vm_operations_struct evdi_gem_vm_ops = {
@@ -63,10 +63,6 @@ static const struct file_operations evdi_driver_fops = {
 
 static struct drm_driver driver = {
 	.driver_features = DRIVER_MODESET | DRIVER_GEM | DRIVER_PRIME,
-	/* In 4.12+, loading moves from .load() to open-coding */
-#if KERNEL_VERSION(4, 12, 0) > LINUX_VERSION_CODE
-	.load = evdi_driver_load,
-#endif
 	.unload = evdi_driver_unload,
 	.preclose = evdi_driver_preclose,
 
@@ -110,7 +106,7 @@ static void evdi_add_device(void)
 	};
 
 	evdi_context.devices[evdi_context.dev_count] =
-	    platform_device_register_full(&pdevinfo);
+			platform_device_register_full(&pdevinfo);
 	if (dma_set_mask(&evdi_context.devices[evdi_context.dev_count]->dev,
 			 DMA_BIT_MASK(64))) {
 		EVDI_DEBUG("Unable to change dma mask to 64 bit. ");
@@ -137,14 +133,6 @@ static int evdi_add_devices(unsigned int val)
 	return 0;
 }
 
-/*
- * In 4.12+, the DRM core moves from the load() callback to requiring drivers
- * to open-code their registration in their probe callback.
- *
- * Most of our setup happens before registration but the stats require
- * registration first.
- */
-#if KERNEL_VERSION(4, 12, 0) <= LINUX_VERSION_CODE
 static int evdi_platform_probe(struct platform_device *pdev)
 {
 	struct drm_device *dev;
@@ -172,25 +160,14 @@ err_free:
 	drm_dev_unref(dev);
 	return ret;
 }
-#else
-static int evdi_platform_probe(struct platform_device *pdev)
-{
-	EVDI_CHECKPT();
-	return drm_platform_init(&driver, pdev);
-}
-#endif
 
 static int evdi_platform_remove(struct platform_device *pdev)
 {
 	struct drm_device *drm_dev =
-	    (struct drm_device *)platform_get_drvdata(pdev);
+			(struct drm_device *)platform_get_drvdata(pdev);
 	EVDI_CHECKPT();
 
-#if KERNEL_VERSION(4, 14, 0) > LINUX_VERSION_CODE
-	drm_unplug_dev(drm_dev);
-#else
 	drm_dev_unplug(drm_dev);
-#endif
 
 	return 0;
 }
@@ -215,23 +192,23 @@ static struct platform_driver evdi_platform_driver = {
 	.probe = evdi_platform_probe,
 	.remove = evdi_platform_remove,
 	.driver = {
-		   .name = "evdi",
-		   .mod_name = KBUILD_MODNAME,
-		   .owner = THIS_MODULE,
+			 .name = "evdi",
+			 .mod_name = KBUILD_MODNAME,
+			 .owner = THIS_MODULE,
 	}
 };
 
 static ssize_t version_show(__always_unused struct device *dev,
-			    __always_unused struct device_attribute *attr,
-			    char *buf)
+				__always_unused struct device_attribute *attr,
+				char *buf)
 {
 	return snprintf(buf, PAGE_SIZE, "%u.%u.%u\n", DRIVER_MAJOR,
 			DRIVER_MINOR, DRIVER_PATCHLEVEL);
 }
 
 static ssize_t count_show(__always_unused struct device *dev,
-			  __always_unused struct device_attribute *attr,
-			  char *buf)
+				__always_unused struct device_attribute *attr,
+				char *buf)
 {
 	return snprintf(buf, PAGE_SIZE, "%u\n", evdi_context.dev_count);
 }
@@ -265,16 +242,16 @@ static ssize_t remove_all_store(__always_unused struct device *dev,
 }
 
 static ssize_t loglevel_show(__always_unused struct device *dev,
-			     __always_unused struct device_attribute *attr,
-			     char *buf)
+				__always_unused struct device_attribute *attr,
+				char *buf)
 {
 	return snprintf(buf, PAGE_SIZE, "%u\n", evdi_loglevel);
 }
 
 static ssize_t loglevel_store(__always_unused struct device *dev,
-			      __always_unused struct device_attribute *attr,
-			      const char *buf,
-			      size_t count)
+				__always_unused struct device_attribute *attr,
+				const char *buf,
+				size_t count)
 {
 	unsigned int val;
 
@@ -302,32 +279,19 @@ static struct device_attribute evdi_device_attributes[] = {
 
 static int __init evdi_init(void)
 {
-	int i, ret;
+	int i;
 
 	EVDI_INFO("Initialising logging on level %u\n", evdi_loglevel);
-
-#if KERNEL_VERSION(4, 0, 0) <= LINUX_VERSION_CODE
 	EVDI_INFO("Atomic driver:%s",
 		(driver.driver_features & DRIVER_ATOMIC) ? "yes" : "no");
-#else
-	EVDI_INFO("Atomic driver: unsupported");
-#endif
-
 	evdi_context.root_dev = root_device_register("evdi");
 	if (!PTR_RET(evdi_context.root_dev))
 		for (i = 0; i < ARRAY_SIZE(evdi_device_attributes); i++) {
 			device_create_file(evdi_context.root_dev,
-					   &evdi_device_attributes[i]);
+						 &evdi_device_attributes[i]);
 		}
 
-	ret = platform_driver_register(&evdi_platform_driver);
-	if (ret)
-		return ret;
-
-	if (evdi_initial_device_count)
-		return evdi_add_devices(evdi_initial_device_count);
-
-	return 0;
+	return platform_driver_register(&evdi_platform_driver);
 }
 
 static void __exit evdi_exit(void)
@@ -341,7 +305,7 @@ static void __exit evdi_exit(void)
 	if (!PTR_RET(evdi_context.root_dev)) {
 		for (i = 0; i < ARRAY_SIZE(evdi_device_attributes); i++) {
 			device_remove_file(evdi_context.root_dev,
-					   &evdi_device_attributes[i]);
+						 &evdi_device_attributes[i]);
 		}
 		root_device_unregister(evdi_context.root_dev);
 	}
@@ -349,3 +313,9 @@ static void __exit evdi_exit(void)
 
 module_init(evdi_init);
 module_exit(evdi_exit);
+
+bool evdi_enable_cursor_blending __read_mostly = true;
+module_param_named(enable_cursor_blending,
+			 evdi_enable_cursor_blending, bool, 0644);
+MODULE_PARM_DESC(enable_cursor_blending, "Enables cursor compositing on user supplied framebuffer via EVDI_GRABPIX ioctl. (default: true)");
+
