@@ -1383,6 +1383,79 @@ static void hci_dev_get_bd_addr_from_property(struct hci_dev *hdev)
 	bacpy(&hdev->public_addr, &ba);
 }
 
+static int hci_set_err_data_report_req(struct hci_request *req,
+				       unsigned long opt)
+{
+	struct hci_dev *hdev = req->hdev;
+	struct hci_cp_write_err_data_report cp;
+
+	if (!hdev->wide_band_speech)
+		return -EOPNOTSUPP;
+
+	/* Write Default Erroneous Data Reporting */
+	cp.enable = true;
+	hci_req_add(req, HCI_OP_WRITE_ERR_DATA_REPORT, sizeof(cp), &cp);
+	return 0;
+}
+
+static void hci_set_err_data_report(struct hci_dev *hdev)
+{
+	int err;
+
+	if (!hdev->wide_band_speech) {
+		BT_DBG("wide_band_speech is not supported.");
+		return;
+	}
+
+	/* Enable Erroneous Data Reporting */
+	err = __hci_req_sync(hdev, hci_set_err_data_report_req, 0,
+			     HCI_CMD_TIMEOUT, NULL);
+	if (err) {
+		BT_ERR("HCI_OP_WRITE_ERR_DATA_REPORT failed");
+		hdev->wide_band_speech = false;
+	}
+	BT_DBG("wide_band_speech: %d", hdev->wide_band_speech);
+}
+
+/* TODO(crbug.com/977059): create a blacklist of controllers from other
+ * vendors in addition to Intel that do not support wide-band speech.
+ */
+static const struct controller_id_t blacklist_wide_band_speech[] = {
+	/* Intel Stone Peak 2 (AC7265) */
+	{ CONTROLLER_ID(0x8087, 0x0a2a) },
+
+	/* Intel Wilkins Peak 2 (AC7260) */
+	{ CONTROLLER_ID(0x8087, 0x07dc) },
+
+	/* Terminating entry -- add entries above this line -- */
+	{ }
+};
+
+static void check_wide_band_speech_capability(struct hci_dev *hdev)
+{
+	const struct controller_id_t *id = blacklist_wide_band_speech;
+
+	if (hdev->controller_id.idVendor != 0x8087)
+		goto not_supported;
+
+	for (; id->idVendor || id->idProduct; id++) {
+		if (hdev->controller_id.idVendor == id->idVendor &&
+		    hdev->controller_id.idProduct == id->idProduct) {
+			BT_DBG("controller id (0x%4.4xk, 0x%4.4x) in blacklist",
+			       hdev->controller_id.idVendor,
+			       hdev->controller_id.idProduct);
+			goto not_supported;
+		}
+	}
+
+	hdev->wide_band_speech = true;
+	hci_set_err_data_report(hdev);
+	return;
+
+not_supported:
+	hdev->wide_band_speech = false;
+}
+
 static int hci_dev_do_open(struct hci_dev *hdev)
 {
 	int ret = 0;
@@ -1543,6 +1616,10 @@ setup_failed:
 		set_bit(HCI_UP, &hdev->flags);
 		hci_sock_dev_event(hdev, HCI_DEV_UP);
 		hci_leds_update_powered(hdev, true);
+
+		/* Check wide band speech capability before power on. */
+		check_wide_band_speech_capability(hdev);
+
 		if (!hci_dev_test_flag(hdev, HCI_SETUP) &&
 		    !hci_dev_test_flag(hdev, HCI_CONFIG) &&
 		    !hci_dev_test_flag(hdev, HCI_UNCONFIGURED) &&
@@ -4283,9 +4360,7 @@ static void hci_scodata_packet(struct hci_dev *hdev, struct sk_buff *skb)
 	struct hci_conn *conn;
 	__u16 handle;
 
-	skb_pull(skb, HCI_SCO_HDR_SIZE);
-
-	handle = __le16_to_cpu(hdr->handle);
+	handle = __le16_to_cpu(hdr->handle) & 0xfff;
 
 	BT_DBG("%s len %d handle 0x%4.4x", hdev->name, skb->len, handle);
 
@@ -4509,7 +4584,7 @@ static bool skip_conditional_cmd(struct work_struct *work, struct sk_buff *skb)
 		 */
 		if ((cur_enabled == desired_enabled && !cur_changing) ||
 		    (cur_enabled != desired_enabled && cur_changing)) {
-			BT_INFO("  COND LE cmd (0x%04x) is already %d (chg %d),"
+			BT_DBG("  COND LE cmd (0x%04x) is already %d (chg %d),"
 				" skip transition to %d", hci_skb_opcode(skb),
 				cur_enabled, cur_changing, desired_enabled);
 
@@ -4519,10 +4594,10 @@ static bool skip_conditional_cmd(struct work_struct *work, struct sk_buff *skb)
 			/* See if there are more commands to do in cmd_q. */
 			atomic_set(&hdev->cmd_cnt, 1);
 			if (!skb_queue_empty(&hdev->cmd_q)) {
-				BT_INFO("  COND call queue_work.");
+				BT_DBG("  COND call queue_work.");
 				queue_work(hdev->workqueue, &hdev->cmd_work);
 			} else {
-				BT_INFO("  COND no more cmd in queue.");
+				BT_DBG("  COND no more cmd in queue.");
 			}
 			ret = true;
 			goto out;

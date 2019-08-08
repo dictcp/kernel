@@ -49,6 +49,9 @@
 #define ieee80211_ie_split_ric __iwl7000_ieee80211_ie_split_ric
 #define ieee80211_ie_split __iwl7000_ieee80211_ie_split
 #endif
+#if CFG80211_VERSION < KERNEL_VERSION(4,20,0)
+#define ieee80211_get_vht_max_nss __iwl7000_ieee80211_get_vht_max_nss
+#endif
 #define ieee80211_csa_finish __iwl7000_ieee80211_csa_finish
 #define ieee80211_nan_func_terminated __iwl7000_ieee80211_nan_func_terminated
 #define ieee80211_nan_func_match __iwl7000_ieee80211_nan_func_match
@@ -82,7 +85,6 @@
 #define ieee80211_report_wowlan_wakeup __iwl7000_ieee80211_report_wowlan_wakeup
 #define ieee80211_rate_control_register __iwl7000_ieee80211_rate_control_register
 #define ieee80211_rate_control_unregister __iwl7000_ieee80211_rate_control_unregister
-#define rate_control_send_low __iwl7000_rate_control_send_low
 #define ieee80211_get_tx_rates __iwl7000_ieee80211_get_tx_rates
 #define rate_control_set_rates __iwl7000_rate_control_set_rates
 #if CFG80211_VERSION < KERNEL_VERSION(4,0,0)

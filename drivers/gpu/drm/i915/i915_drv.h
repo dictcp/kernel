@@ -67,6 +67,7 @@
 #include "intel_ringbuffer.h"
 #include "intel_uncore.h"
 #include "intel_wopcm.h"
+#include "intel_workarounds.h"
 #include "intel_uc.h"
 
 #include "i915_gem.h"
@@ -1125,6 +1126,7 @@ struct intel_vbt_data {
 		enum psr_lines_to_wait lines_to_wait;
 		int tp1_wakeup_time_us;
 		int tp2_tp3_wakeup_time_us;
+		int psr2_tp2_tp3_wakeup_time_us;
 	} psr;
 
 	struct {
@@ -1813,6 +1815,7 @@ struct drm_i915_private {
 	int dpio_phy_iosf_port[I915_NUM_PHYS_VLV];
 
 	struct i915_workarounds workarounds;
+	struct i915_wa_list gt_wa_list;
 
 	struct i915_frontbuffer_tracking fb_tracking;
 

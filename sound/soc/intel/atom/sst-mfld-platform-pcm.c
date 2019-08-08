@@ -264,17 +264,28 @@ static int sst_platform_alloc_stream(struct snd_pcm_substream *substream,
 static void sst_period_elapsed(void *arg)
 {
 	struct snd_pcm_substream *substream = arg;
+	struct snd_soc_pcm_runtime *rtd;
 	struct sst_runtime_stream *stream;
+	struct pcm_stream_info *str_info;
 	int status;
+	int ret_val;
 
 	if (!substream || !substream->runtime)
 		return;
+	rtd = substream->private_data;
 	stream = substream->runtime->private_data;
 	if (!stream)
 		return;
 	status = sst_get_stream_status(stream);
 	if (status != SST_PLATFORM_RUNNING)
 		return;
+	str_info = &stream->stream_info;
+
+	ret_val = stream->ops->stream_read_tstamp(sst->dev, str_info);
+	if (ret_val) {
+		dev_err(rtd->dev, "sst: err code = %d\n", ret_val);
+		return;
+	}
 	snd_pcm_period_elapsed(substream);
 }
 
@@ -658,20 +669,14 @@ static snd_pcm_uframes_t sst_platform_pcm_pointer
 			(struct snd_pcm_substream *substream)
 {
 	struct sst_runtime_stream *stream;
-	int ret_val, status;
+	int status;
 	struct pcm_stream_info *str_info;
-	struct snd_soc_pcm_runtime *rtd = substream->private_data;
 
 	stream = substream->runtime->private_data;
 	status = sst_get_stream_status(stream);
 	if (status == SST_PLATFORM_INIT)
 		return 0;
 	str_info = &stream->stream_info;
-	ret_val = stream->ops->stream_read_tstamp(sst->dev, str_info);
-	if (ret_val) {
-		dev_err(rtd->dev, "sst: error code = %d\n", ret_val);
-		return ret_val;
-	}
 	substream->runtime->delay = str_info->pcm_delay;
 	return str_info->buffer_ptr;
 }
@@ -687,20 +692,15 @@ static int sst_pcm_new(struct snd_soc_pcm_runtime *rtd)
 {
 	struct snd_soc_dai *dai = rtd->cpu_dai;
 	struct snd_pcm *pcm = rtd->pcm;
-	int retval = 0;
 
 	if (dai->driver->playback.channels_min ||
 			dai->driver->capture.channels_min) {
-		retval =  snd_pcm_lib_preallocate_pages_for_all(pcm,
+		snd_pcm_lib_preallocate_pages_for_all(pcm,
 			SNDRV_DMA_TYPE_CONTINUOUS,
 			snd_dma_continuous_data(GFP_DMA),
 			SST_MIN_BUFFER, SST_MAX_BUFFER);
-		if (retval) {
-			dev_err(rtd->dev, "dma buffer allocation failure\n");
-			return retval;
-		}
 	}
-	return retval;
+	return 0;
 }
 
 static int sst_soc_probe(struct snd_soc_component *component)

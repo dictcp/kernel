@@ -22,6 +22,14 @@
 #include <linux/videodev2.h>
 #include <media/media-request.h>
 
+/*
+ * Include the stateless codec compound control definitions.
+ * This will move to the public headers once this API is fully stable.
+ */
+#include <media/mpeg2-ctrls.h>
+#include <media/h264-ctrls.h>
+#include <media/vp8-ctrls.h>
+
 /* forward references */
 struct file;
 struct v4l2_ctrl_handler;
@@ -35,13 +43,21 @@ struct poll_table_struct;
 
 /**
  * union v4l2_ctrl_ptr - A pointer to a control value.
- * @p_s32:	Pointer to a 32-bit signed value.
- * @p_s64:	Pointer to a 64-bit signed value.
- * @p_u8:	Pointer to a 8-bit unsigned value.
- * @p_u16:	Pointer to a 16-bit unsigned value.
- * @p_u32:	Pointer to a 32-bit unsigned value.
- * @p_char:	Pointer to a string.
- * @p:		Pointer to a compound value.
+ * @p_s32:			Pointer to a 32-bit signed value.
+ * @p_s64:			Pointer to a 64-bit signed value.
+ * @p_u8:			Pointer to a 8-bit unsigned value.
+ * @p_u16:			Pointer to a 16-bit unsigned value.
+ * @p_u32:			Pointer to a 32-bit unsigned value.
+ * @p_char:			Pointer to a string.
+ * @p_mpeg2_slice_params:	Pointer to a MPEG2 slice parameters structure.
+ * @p_mpeg2_quantization:	Pointer to a MPEG2 quantization data structure.
+ * @p_h264_sps:			Pointer to a struct v4l2_ctrl_h264_sps.
+ * @p_h264_pps:			Pointer to a struct v4l2_ctrl_h264_pps.
+ * @p_h264_scaling_matrix:	Pointer to a struct v4l2_ctrl_h264_scaling_matrix.
+ * @p_h264_slice_params:	Pointer to a struct v4l2_ctrl_h264_slice_params.
+ * @p_h264_decode_params:	Pointer to a struct v4l2_ctrl_h264_decode_params.
+ * @p_vp8_frame_header:		Pointer to a VP8 frame header structure.
+ * @p:				Pointer to a compound value.
  */
 union v4l2_ctrl_ptr {
 	s32 *p_s32;
@@ -50,6 +66,14 @@ union v4l2_ctrl_ptr {
 	u16 *p_u16;
 	u32 *p_u32;
 	char *p_char;
+	struct v4l2_ctrl_mpeg2_slice_params *p_mpeg2_slice_params;
+	struct v4l2_ctrl_mpeg2_quantization *p_mpeg2_quantization;
+	struct v4l2_ctrl_h264_sps *p_h264_sps;
+	struct v4l2_ctrl_h264_pps *p_h264_pps;
+	struct v4l2_ctrl_h264_scaling_matrix *p_h264_scaling_matrix;
+	struct v4l2_ctrl_h264_slice_params *p_h264_slice_params;
+	struct v4l2_ctrl_h264_decode_params *p_h264_decode_params;
+	struct v4l2_ctrl_vp8_frame_header *p_vp8_frame_header;
 	void *p;
 };
 

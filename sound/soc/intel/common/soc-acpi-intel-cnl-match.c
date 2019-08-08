@@ -16,6 +16,11 @@ static struct skl_machine_pdata cnl_pdata = {
 
 static struct snd_soc_acpi_codecs cml_codecs = {
 	.num_codecs = 1,
+	.codecs = {"10EC5682"}
+};
+
+static struct snd_soc_acpi_codecs cml_spk_codecs = {
+	.num_codecs = 1,
 	.codecs = {"MX98357A"}
 };
 
@@ -35,12 +40,26 @@ struct snd_soc_acpi_mach snd_soc_acpi_intel_cnl_machines[] = {
 		.pdata = &cnl_pdata,
 	},
 	{
-		.id = "10EC5682",
-		.drv_name = "cml_rt5682_max98357a",
+		.id = "DLGS7219",
+		.drv_name = "cml_da7219_max98357a",
+		.quirk_data = &cml_spk_codecs,
+		.sof_fw_filename = "sof-cnl.ri",
+		.sof_tplg_filename = "sof-cml-da7219-max98357a.tplg",
+	},
+	{
+		.id = "MX98357A",
+		.drv_name = "sof_rt5682",
 		.quirk_data = &cml_codecs,
 		.sof_fw_filename = "sof-cnl.ri",
-		.sof_tplg_filename = "sof-cml-rt5682_max98357a.tplg",
+		.sof_tplg_filename = "sof-cml-rt5682-max98357a.tplg",
 	},
+	{
+		.id = "10EC5682",
+		.drv_name = "sof_rt5682",
+		.sof_fw_filename = "sof-cnl.ri",
+		.sof_tplg_filename = "sof-cml-rt5682.tplg",
+	},
+
 	{},
 };
 EXPORT_SYMBOL_GPL(snd_soc_acpi_intel_cnl_machines);

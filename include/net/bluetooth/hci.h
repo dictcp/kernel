@@ -52,6 +52,7 @@
 #define HCI_NOTIFY_CONN_ADD		1
 #define HCI_NOTIFY_CONN_DEL		2
 #define HCI_NOTIFY_VOICE_SETTING	3
+#define HCI_NOTIFY_AIR_MODE_TRANSP	4
 
 /* HCI bus types */
 #define HCI_VIRTUAL	0
@@ -1075,6 +1076,11 @@ struct hci_rp_read_local_oob_data {
 struct hci_rp_read_inq_rsp_tx_power {
 	__u8     status;
 	__s8     tx_power;
+} __packed;
+
+#define HCI_OP_WRITE_ERR_DATA_REPORT    0x0c5b
+struct hci_cp_write_err_data_report {
+	__u8     enable;
 } __packed;
 
 #define HCI_OP_SET_EVENT_MASK_PAGE_2	0x0c63
