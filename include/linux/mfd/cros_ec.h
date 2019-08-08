@@ -171,6 +171,7 @@ struct cros_ec_device {
 	struct ec_response_get_next_event_v1 event_data;
 	int event_size;
 	u32 host_event_wake_mask;
+	u32 last_resume_result;
 	s64 last_event_time;
 };
 
@@ -382,17 +383,5 @@ s64 cros_ec_get_time_ns(void);
  * called again.
  */
 bool cros_ec_handle_event(struct cros_ec_device *ec_dev);
-
-/* sysfs stuff */
-extern struct attribute_group cros_ec_attr_group;
-extern struct attribute_group cros_ec_lightbar_attr_group;
-extern struct attribute_group cros_ec_vbc_attr_group;
-extern struct attribute_group cros_ec_pd_attr_group;
-
-/* debugfs stuff */
-int cros_ec_debugfs_init(struct cros_ec_dev *ec);
-void cros_ec_debugfs_remove(struct cros_ec_dev *ec);
-void cros_ec_debugfs_suspend(struct cros_ec_dev *ec);
-void cros_ec_debugfs_resume(struct cros_ec_dev *ec);
 
 #endif /* __LINUX_MFD_CROS_EC_H */

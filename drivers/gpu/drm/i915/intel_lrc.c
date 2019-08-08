@@ -499,7 +499,7 @@ static void execlists_submit_ports(struct intel_engine_cs *engine)
 			desc = execlists_update_context(rq);
 			GEM_DEBUG_EXEC(port[n].context_id = upper_32_bits(desc));
 
-			GEM_TRACE("%s in[%d]:  ctx=%d.%d, global=%d (fence %llx:%d) (current %d), prio=%d\n",
+			GEM_TRACE("%s in[%d]:  ctx=%d.%d, global=%d (fence %llx:%lld) (current %d), prio=%d\n",
 				  engine->name, n,
 				  port[n].context_id, count,
 				  rq->global_seqno,
@@ -796,7 +796,7 @@ execlists_cancel_port_requests(struct intel_engine_execlists * const execlists)
 	while (num_ports-- && port_isset(port)) {
 		struct i915_request *rq = port_request(port);
 
-		GEM_TRACE("%s:port%u global=%d (fence %llx:%d), (current %d)\n",
+		GEM_TRACE("%s:port%u global=%d (fence %llx:%lld), (current %d)\n",
 			  rq->engine->name,
 			  (unsigned int)(port - execlists->port),
 			  rq->global_seqno,
@@ -1005,7 +1005,7 @@ static void process_csb(struct intel_engine_cs *engine)
 						EXECLISTS_ACTIVE_USER));
 
 		rq = port_unpack(port, &count);
-		GEM_TRACE("%s out[0]: ctx=%d.%d, global=%d (fence %llx:%d) (current %d), prio=%d\n",
+		GEM_TRACE("%s out[0]: ctx=%d.%d, global=%d (fence %llx:%lld) (current %d), prio=%d\n",
 			  engine->name,
 			  port->context_id, count,
 			  rq ? rq->global_seqno : 0,
@@ -1798,6 +1798,8 @@ static bool unexpected_starting_state(struct intel_engine_cs *engine)
 
 static int gen8_init_common_ring(struct intel_engine_cs *engine)
 {
+	intel_engine_apply_workarounds(engine);
+
 	intel_mocs_init_engine(engine);
 
 	intel_engine_reset_breadcrumbs(engine);
@@ -2495,6 +2497,8 @@ int logical_render_ring_init(struct intel_engine_cs *engine)
 		DRM_ERROR("WA batch buffer initialization failed: %d\n",
 			  ret);
 	}
+
+	intel_engine_init_workarounds(engine);
 
 	return 0;
 
