@@ -542,14 +542,11 @@ static const struct dmi_system_id __initconst dmi_system_efi_blacklist[] = {
 		 * panic  when efi variables are set.
 		 * Disable EFI services on these machines to protect against
 		 * the problem.
-		 * The product name is shared with other devices
-		 * but the Celeron N3450 variant can be identified
-		 * with the SKU.
 		 * OVER-9289
 		 */
 		.matches = {
 			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "HP"),
-			DMI_EXACT_MATCH(DMI_PRODUCT_SKU, "2QU86UT#ABL"),
+			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "HP ProBook x360 11 G1 EE"),
 		},
 	},
 	{}
