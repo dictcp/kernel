@@ -546,7 +546,7 @@ static const struct dmi_system_id __initconst dmi_system_efi_blacklist[] = {
 		 */
 		.matches = {
 			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "HP"),
-			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "HP ProBook x360 11 G1 EE"),
+			DMI_MATCH(DMI_PRODUCT_NAME, "x360 11 G1 EE"),
 		},
 	},
 	{}
