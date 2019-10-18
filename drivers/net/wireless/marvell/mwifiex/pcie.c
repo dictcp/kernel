@@ -198,6 +198,7 @@ static int mwifiex_pcie_resume(struct device *dev)
 	struct pcie_service_card *card;
 	struct pci_dev *pdev = to_pci_dev(dev);
 
+	pci_set_power_state(pdev, PCI_D0);
 	card = pci_get_drvdata(pdev);
 
 	if (!card->adapter) {
