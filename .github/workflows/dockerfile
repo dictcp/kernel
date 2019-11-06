@@ -18,5 +18,4 @@ run apt-get update && apt-get install -y aptitude && aptitude install -y \
 run mkdir -p /home/kewluser/app
 workdir /home/kewluser/app
 add master.sh .
-add pr.sh .
 add dotconfig .
