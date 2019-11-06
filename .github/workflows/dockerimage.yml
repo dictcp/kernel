@@ -14,6 +14,5 @@ jobs:
       working-directory: ./.github/workflows
       run: docker build . --file dockerfile --tag kernelbuilder
     - name: Run the docker image
-      uses: ./.github/workflows/master.sh
       working-directory: ./.github/workflows
       run: docker run --rm --name kernelbox -v "$(pwd)"/../..:/home/kewluser/app/kernel kernelbuilder:latest /bin/bash master.sh
