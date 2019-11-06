@@ -11,6 +11,6 @@ jobs:
     steps:
     - uses: actions/checkout@v1
     - name: Build the Docker image
-      run: docker build . --file dockerfile --tag kernelbuilder
+      run: docker build . --file ./.github/workflows/dockerfile --tag kernelbuilder
     - name: Run the docker image
       run: docker run --rm --name kernelbox -v "$(pwd)"/../..:/home/kewluser/app/kernel kernelbuilder:latest /bin/bash master.sh
