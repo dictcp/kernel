@@ -1,0 +1,15 @@
+name: Docker Image CI
+
+on: [push]
+
+jobs:
+
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v1
+    - name: Build the Docker image
+      run: docker build . --file dockerfile --tag kernelbuilder
+      run: docker run --rm --name kernelbox -v "$(pwd)"/../..:/home/kewluser/app/kernel kernelbuilder:latest /bin/bash master.sh

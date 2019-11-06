@@ -1,0 +1,22 @@
+# testing is ok
+from debian:testing
+
+# get whatever apt packages we need
+run apt-get update && apt-get install -y aptitude && aptitude install -y \
+  bc \
+  bison \
+  build-essential \
+  ccache \
+  flex \
+  libelf-dev \
+  libssl-dev \
+  less \
+  openssl \
+  vim \
+  zip
+
+run mkdir -p /home/kewluser/app
+workdir /home/kewluser/app
+add master.sh .
+add pr.sh .
+add dotconfig .
