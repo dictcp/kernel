@@ -165,9 +165,10 @@ static void soc_init_component_debugfs(struct snd_soc_component *component)
 				component->card->debugfs_card_root);
 	}
 
-	if (!component->debugfs_root) {
+	if (IS_ERR(component->debugfs_root)) {
 		dev_warn(component->dev,
-			"ASoC: Failed to create component debugfs directory\n");
+			"ASoC: Failed to create component debugfs directory: %ld\n",
+			PTR_ERR(component->debugfs_root));
 		return;
 	}
 
@@ -219,18 +220,21 @@ static void soc_init_card_debugfs(struct snd_soc_card *card)
 
 	card->debugfs_card_root = debugfs_create_dir(card->name,
 						     snd_soc_debugfs_root);
-	if (!card->debugfs_card_root) {
+	if (IS_ERR(card->debugfs_card_root)) {
 		dev_warn(card->dev,
-			 "ASoC: Failed to create card debugfs directory\n");
+			 "ASoC: Failed to create card debugfs directory: %ld\n",
+			 PTR_ERR(card->debugfs_card_root));
+		card->debugfs_card_root = NULL;
 		return;
 	}
 
 	card->debugfs_pop_time = debugfs_create_u32("dapm_pop_time", 0644,
 						    card->debugfs_card_root,
 						    &card->pop_time);
-	if (!card->debugfs_pop_time)
+	if (IS_ERR(card->debugfs_pop_time))
 		dev_warn(card->dev,
-			 "ASoC: Failed to create pop time debugfs file\n");
+			 "ASoC: Failed to create pop time debugfs file: %ld\n",
+			 PTR_ERR(card->debugfs_pop_time));
 }
 
 static void soc_cleanup_card_debugfs(struct snd_soc_card *card)
@@ -760,33 +764,14 @@ static struct device_node
 	return of_node;
 }
 
-static struct snd_soc_component *soc_find_component(
-	const struct device_node *of_node, const char *name)
-{
-	struct snd_soc_component *component;
-	struct device_node *component_of_node;
-
-	lockdep_assert_held(&client_mutex);
-
-	for_each_component(component) {
-		if (of_node) {
-			component_of_node = soc_component_to_node(component);
-
-			if (component_of_node == of_node)
-				return component;
-		} else if (name && strcmp(component->name, name) == 0) {
-			return component;
-		}
-	}
-
-	return NULL;
-}
-
 static int snd_soc_is_matching_component(
 	const struct snd_soc_dai_link_component *dlc,
 	struct snd_soc_component *component)
 {
 	struct device_node *component_of_node;
+
+	if (!dlc)
+		return 0;
 
 	component_of_node = soc_component_to_node(component);
 
@@ -796,6 +781,28 @@ static int snd_soc_is_matching_component(
 		return 0;
 
 	return 1;
+}
+
+static struct snd_soc_component *soc_find_component(
+	const struct snd_soc_dai_link_component *dlc)
+{
+	struct snd_soc_component *component;
+
+	lockdep_assert_held(&client_mutex);
+
+	/*
+	 * NOTE
+	 *
+	 * It returns *1st* found component, but some driver
+	 * has few components by same of_node/name
+	 * ex)
+	 *	CPU component and generic DMAEngine component
+	 */
+	for_each_component(component)
+		if (snd_soc_is_matching_component(dlc, component))
+			return component;
+
+	return NULL;
 }
 
 /**
@@ -955,6 +962,7 @@ _err_defer:
 
 static void soc_cleanup_component(struct snd_soc_component *component)
 {
+	snd_soc_component_set_jack(component, NULL, NULL);
 	list_del(&component->card_list);
 	snd_soc_dapm_free(snd_soc_component_get_dapm(component));
 	soc_cleanup_component_debugfs(component);
@@ -1232,32 +1240,38 @@ static int soc_init_dai_link(struct snd_soc_card *card,
 		}
 	}
 
-	/* FIXME */
-	if (link->num_platforms > 1) {
-		dev_err(card->dev,
-			"ASoC: multi platform is not yet supported %s\n",
-			link->name);
-		return -EINVAL;
-	}
-
 	/*
-	 * Platform may be specified by either name or OF node, but
-	 * can be left unspecified, and a dummy platform will be used.
+	 * Platform may be specified by either name or OF node,
+	 * or no Platform.
+	 *
+	 * FIXME
+	 *
+	 * We need multi-platform support
 	 */
-	if (link->platforms->name && link->platforms->of_node) {
-		dev_err(card->dev,
-			"ASoC: Both platform name/of_node are set for %s\n",
-			link->name);
-		return -EINVAL;
-	}
+	if (link->num_platforms > 0) {
 
-	/*
-	 * Defer card registartion if platform dai component is not added to
-	 * component list.
-	 */
-	if ((link->platforms->of_node || link->platforms->name) &&
-	    !soc_find_component(link->platforms->of_node, link->platforms->name))
-		return -EPROBE_DEFER;
+		if (link->num_platforms > 1) {
+			dev_err(card->dev,
+				"ASoC: multi platform is not yet supported %s\n",
+				link->name);
+			return -EINVAL;
+		}
+
+		if (link->platforms->name && link->platforms->of_node) {
+			dev_err(card->dev,
+				"ASoC: Both platform name/of_node are set for %s\n",
+				link->name);
+			return -EINVAL;
+		}
+
+		/*
+		 * Defer card registartion if platform dai component is not
+		 * added to component list.
+		 */
+		if ((link->platforms->of_node || link->platforms->name) &&
+		    !soc_find_component(link->platforms))
+			return -EPROBE_DEFER;
+	}
 
 	/* FIXME */
 	if (link->num_cpus > 1) {
@@ -1284,7 +1298,7 @@ static int soc_init_dai_link(struct snd_soc_card *card,
 	 * component list.
 	 */
 	if ((link->cpus->of_node || link->cpus->name) &&
-	    !soc_find_component(link->cpus->of_node, link->cpus->name))
+	    !soc_find_component(link->cpus))
 		return -EPROBE_DEFER;
 
 	/*
@@ -1485,12 +1499,11 @@ static int soc_probe_component(struct snd_soc_card *card,
 				"ASoC: failed to probe component %d\n", ret);
 			goto err_probe;
 		}
-
-		WARN(dapm->idle_bias_off &&
-			dapm->bias_level != SND_SOC_BIAS_OFF,
-			"codec %s can not start from non-off bias with idle_bias_off==1\n",
-			component->name);
 	}
+	WARN(dapm->idle_bias_off &&
+	     dapm->bias_level != SND_SOC_BIAS_OFF,
+	     "codec %s can not start from non-off bias with idle_bias_off==1\n",
+	     component->name);
 
 	/* machine specific init */
 	if (component->init) {
@@ -1729,38 +1742,22 @@ static int soc_bind_aux_dev(struct snd_soc_card *card, int num)
 {
 	struct snd_soc_aux_dev *aux_dev = &card->aux_dev[num];
 	struct snd_soc_component *component;
-	const char *name;
-	struct device_node *codec_of_node;
 
-	if (aux_dev->codec_of_node || aux_dev->codec_name) {
-		/* codecs, usually analog devices */
-		name = aux_dev->codec_name;
-		codec_of_node = aux_dev->codec_of_node;
-		component = soc_find_component(codec_of_node, name);
-		if (!component) {
-			if (codec_of_node)
-				name = of_node_full_name(codec_of_node);
-			goto err_defer;
-		}
-	} else if (aux_dev->name) {
-		/* generic components */
-		name = aux_dev->name;
-		component = soc_find_component(NULL, name);
-		if (!component)
-			goto err_defer;
-	} else {
-		dev_err(card->dev, "ASoC: Invalid auxiliary device\n");
-		return -EINVAL;
-	}
+	/* remove me */
+	if (aux_dev->codec_name)
+		aux_dev->dlc.name = aux_dev->codec_name;
+	if (aux_dev->codec_of_node)
+		aux_dev->dlc.of_node = aux_dev->codec_of_node;
+
+	/* codecs, usually analog devices */
+	component = soc_find_component(&aux_dev->dlc);
+	if (!component)
+		return -EPROBE_DEFER;
 
 	component->init = aux_dev->init;
 	list_add(&component->card_aux_list, &card->aux_comp_list);
 
 	return 0;
-
-err_defer:
-	dev_err(card->dev, "ASoC: %s not registered\n", name);
-	return -EPROBE_DEFER;
 }
 
 static int soc_probe_aux_devices(struct snd_soc_card *card)
@@ -2890,10 +2887,21 @@ EXPORT_SYMBOL_GPL(snd_soc_register_card);
 
 static void snd_soc_unbind_card(struct snd_soc_card *card, bool unregister)
 {
+	struct snd_soc_pcm_runtime *rtd;
+	int order;
+
 	if (card->instantiated) {
 		card->instantiated = false;
 		snd_soc_dapm_shutdown(card);
 		snd_soc_flush_all_delayed_work(card);
+
+		/* remove all components used by DAI links on this card */
+		for_each_comp_order(order) {
+			for_each_card_rtds(card, rtd) {
+				soc_remove_link_components(card, rtd, order);
+			}
+		}
+
 		soc_cleanup_card_resources(card);
 		if (!unregister)
 			list_add(&card->list, &unbind_card_list);
@@ -2911,7 +2919,9 @@ static void snd_soc_unbind_card(struct snd_soc_card *card, bool unregister)
  */
 int snd_soc_unregister_card(struct snd_soc_card *card)
 {
+	mutex_lock(&client_mutex);
 	snd_soc_unbind_card(card, true);
+	mutex_unlock(&client_mutex);
 	dev_dbg(card->dev, "ASoC: Unregistered card '%s'\n", card->name);
 
 	return 0;
@@ -3801,11 +3811,11 @@ EXPORT_SYMBOL_GPL(snd_soc_of_parse_daifmt);
 int snd_soc_get_dai_id(struct device_node *ep)
 {
 	struct snd_soc_component *component;
-	struct device_node *node;
+	struct snd_soc_dai_link_component dlc;
 	int ret;
 
-	node = of_graph_get_port_parent(ep);
-
+	dlc.of_node	= of_graph_get_port_parent(ep);
+	dlc.name	= NULL;
 	/*
 	 * For example HDMI case, HDMI has video/sound port,
 	 * but ALSA SoC needs sound port number only.
@@ -3814,13 +3824,13 @@ int snd_soc_get_dai_id(struct device_node *ep)
 	 */
 	ret = -ENOTSUPP;
 	mutex_lock(&client_mutex);
-	component = soc_find_component(node, NULL);
+	component = soc_find_component(&dlc);
 	if (component &&
 	    component->driver->of_xlate_dai_id)
 		ret = component->driver->of_xlate_dai_id(component, ep);
 	mutex_unlock(&client_mutex);
 
-	of_node_put(node);
+	of_node_put(dlc.of_node);
 
 	return ret;
 }

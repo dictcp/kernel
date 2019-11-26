@@ -1162,6 +1162,15 @@ const char * const vmstat_text[] = {
 	"nr_dirtied",
 	"nr_written",
 	"", /* nr_indirectly_reclaimable */
+#ifdef CONFIG_KSTALED
+	"kstaled_timeout",
+	"kstaled_aging_stalls",
+	"kstaled_reclaim_stalls",
+	"kstaled_background_aging",
+	"kstaled_background_hot",
+	"kstaled_direct_aging",
+	"kstaled_direct_hot",
+#endif
 
 	/* enum writeback_stat_item counters */
 	"nr_dirty_threshold",
@@ -1977,7 +1986,7 @@ void __init init_mm_internals(void)
 #endif
 #ifdef CONFIG_PROC_FS
 	proc_create_seq("buddyinfo", 0444, NULL, &fragmentation_op);
-	proc_create_seq("pagetypeinfo", 0444, NULL, &pagetypeinfo_op);
+	proc_create_seq("pagetypeinfo", 0400, NULL, &pagetypeinfo_op);
 	proc_create_seq("vmstat", 0444, NULL, &vmstat_op);
 	proc_create_seq("zoneinfo", 0444, NULL, &zoneinfo_op);
 #endif

@@ -2472,7 +2472,7 @@ static void nvme_async_probe(void *data, async_cookie_t cookie)
 {
 	struct nvme_dev *dev = data;
 
-	nvme_reset_ctrl_sync(&dev->ctrl);
+	flush_work(&dev->ctrl.reset_work);
 	flush_work(&dev->ctrl.scan_work);
 	nvme_put_ctrl(&dev->ctrl);
 }
@@ -2539,6 +2539,7 @@ static int nvme_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 
 	dev_info(dev->ctrl.device, "pci function %s\n", dev_name(&pdev->dev));
 
+	nvme_reset_ctrl(&dev->ctrl);
 	nvme_get_ctrl(&dev->ctrl);
 	async_schedule(nvme_async_probe, dev);
 
@@ -2629,11 +2630,21 @@ static int nvme_deep_state(struct nvme_dev *dev)
 	if (ret < 0)
 		goto unfreeze;
 
+	/*
+	 * A saved state prevents pci pm from generically controlling
+	 * the device's power. If we're using protocol specific
+	 * settings, we don't want pci interfering.
+	 */
+	pci_save_state(pdev);
+
 	ret = nvme_set_features(ctrl, NVME_FEAT_POWER_MGMT, dev->ctrl.npss,
 				NULL, 0, NULL);
 	if (ret < 0)
 		goto unfreeze;
 	if (ret) {
+		/* discard the saved state */
+		pci_load_saved_state(pdev, NULL);
+
 		/*
 		 * Clearing npss forces a controller reset on resume. The
 		 * correct value will be resdicovered then.
@@ -2641,13 +2652,6 @@ static int nvme_deep_state(struct nvme_dev *dev)
 		ctrl->npss = 0;
 		nvme_dev_disable(dev, true);
 		ret = 0;
-	} else {
-		/*
-		 * A saved state prevents pci pm from generically controlling
-		 * the device's power. If we're using protocol specific
-		 * settings, we don't want pci interfering.
-		 */
-		pci_save_state(pdev);
 	}
 unfreeze:
 	nvme_unfreeze(ctrl);
@@ -2679,7 +2683,8 @@ static int nvme_resume(struct device *dev)
 	struct pci_dev *pdev = to_pci_dev(dev);
 	struct nvme_dev *ndev = pci_get_drvdata(pdev);
 
-	return pm_resume_via_firmware() || !ndev->ctrl.npss ?
+	return pm_resume_via_firmware() || !ndev->ctrl.npss ||
+	       (ndev->ctrl.quirks & NVME_QUIRK_SIMPLE_SUSPEND) ?
 		nvme_simple_resume(dev) : nvme_make_operational(ndev);
 }
 
@@ -2702,7 +2707,8 @@ static int nvme_suspend(struct device *dev)
 	 * use host managed nvme power settings for lowest idle power. This
 	 * should have quicker resume latency than a full device shutdown.
 	 */
-	return pm_suspend_via_firmware() || !ndev->ctrl.npss ?
+	return pm_suspend_via_firmware() || !ndev->ctrl.npss ||
+	       (ndev->ctrl.quirks & NVME_QUIRK_SIMPLE_SUSPEND) ?
 		nvme_simple_suspend(dev) : nvme_deep_state(ndev);
 }
 

@@ -48,6 +48,7 @@
 #define DSI_CON_CTRL		0x10
 #define DSI_RESET			BIT(0)
 #define DSI_EN				BIT(1)
+#define DPHY_RESET			BIT(2)
 
 #define DSI_MODE_CTRL		0x14
 #define MODE				(3)
@@ -202,7 +203,7 @@ struct mtk_dsi {
 	struct clk *digital_clk;
 	struct clk *hs_clk;
 
-	unsigned long data_rate;
+	u32 data_rate;
 
 	unsigned long mode_flags;
 	enum mipi_dsi_pixel_format format;
@@ -244,13 +245,13 @@ static void mtk_dsi_phy_timconfig(struct mtk_dsi *dsi)
 	u32 ui, cycle_time;
 	struct mtk_phy_timing *timing = &dsi->phy_timing;
 
-	ui = 1000000000 / dsi->data_rate;
+	ui = DIV_ROUND_UP(1000000000, dsi->data_rate);
 	cycle_time = div_u64(8000000000ULL, dsi->data_rate);
 
 	timing->lpx = NS_TO_CYCLE(60, cycle_time);
-	timing->da_hs_prepare = NS_TO_CYCLE(40 + 5 * ui, cycle_time);
+	timing->da_hs_prepare = NS_TO_CYCLE(50 + 5 * ui, cycle_time);
 	timing->da_hs_zero = NS_TO_CYCLE(110 + 6 * ui, cycle_time);
-	timing->da_hs_trail = NS_TO_CYCLE(80 + 4 * ui, cycle_time);
+	timing->da_hs_trail = NS_TO_CYCLE(77 + 4 * ui, cycle_time);
 
 	timing->ta_go = 4 * timing->lpx;
 	timing->ta_sure = 3 * timing->lpx / 2;
@@ -303,6 +304,12 @@ static void mtk_dsi_reset_engine(struct mtk_dsi *dsi)
 {
 	mtk_dsi_mask(dsi, DSI_CON_CTRL, DSI_RESET, DSI_RESET);
 	mtk_dsi_mask(dsi, DSI_CON_CTRL, DSI_RESET, 0);
+}
+
+static void mtk_dsi_reset_dphy(struct mtk_dsi *dsi)
+{
+	mtk_dsi_mask(dsi, DSI_CON_CTRL, DPHY_RESET, DPHY_RESET);
+	mtk_dsi_mask(dsi, DSI_CON_CTRL, DPHY_RESET, 0);
 }
 
 static void mtk_dsi_clk_ulp_mode_enter(struct mtk_dsi *dsi)
@@ -621,7 +628,7 @@ static s32 mtk_dsi_switch_to_cmd_mode(struct mtk_dsi *dsi, u8 irq_flag, u32 t)
 
 static int mtk_dsi_poweron(struct mtk_dsi *dsi)
 {
-	struct device *dev = dsi->dev;
+	struct device *dev = dsi->host.dev;
 	int ret;
 	u32 bit_per_pixel;
 
@@ -642,12 +649,18 @@ static int mtk_dsi_poweron(struct mtk_dsi *dsi)
 		break;
 	}
 
-	dsi->data_rate = dsi->vm.pixelclock * bit_per_pixel / dsi->lanes;
+	dsi->data_rate = DIV_ROUND_UP_ULL(dsi->vm.pixelclock * bit_per_pixel,
+					  dsi->lanes);
+
+	if (dsi->panel) {
+		if (drm_panel_prepare_power(dsi->panel))
+			DRM_INFO("can't prepare power the panel\n");
+	}
 
 	ret = clk_set_rate(dsi->hs_clk, dsi->data_rate);
 	if (ret < 0) {
 		dev_err(dev, "Failed to set data rate: %d\n", ret);
-		goto err_refcount;
+		goto err_prepare_power;
 	}
 
 	phy_power_on(dsi->phy);
@@ -674,6 +687,8 @@ static int mtk_dsi_poweron(struct mtk_dsi *dsi)
 	mtk_dsi_phy_timconfig(dsi);
 
 	mtk_dsi_rxtx_control(dsi);
+	usleep_range(30, 100);
+	mtk_dsi_reset_dphy(dsi);
 	mtk_dsi_ps_control_vact(dsi);
 	mtk_dsi_set_vm_cmd(dsi);
 	mtk_dsi_config_vdo_timing(dsi);
@@ -697,7 +712,11 @@ err_disable_engine_clk:
 	clk_disable_unprepare(dsi->engine_clk);
 err_phy_power_off:
 	phy_power_off(dsi->phy);
-err_refcount:
+err_prepare_power:
+	if (dsi->panel) {
+		if (drm_panel_unprepare_power(dsi->panel))
+			DRM_INFO("Can't unprepare power the panel\n");
+	}
 	dsi->refcount--;
 	return ret;
 }
@@ -738,6 +757,11 @@ static void mtk_dsi_poweroff(struct mtk_dsi *dsi)
 	clk_disable_unprepare(dsi->digital_clk);
 
 	phy_power_off(dsi->phy);
+
+	if (dsi->panel) {
+		if (drm_panel_unprepare_power(dsi->panel))
+			DRM_INFO("Can't unprepare power the panel\n");
+	}
 }
 
 static void mtk_output_dsi_enable(struct mtk_dsi *dsi)
@@ -1192,7 +1216,6 @@ static int mtk_dsi_probe(struct platform_device *pdev)
 
 	dsi->host.ops = &mtk_dsi_ops;
 	dsi->host.dev = dev;
-	dsi->dev = dev;
 	ret = mipi_dsi_host_register(&dsi->host);
 	if (ret < 0) {
 		dev_err(dev, "failed to register DSI host: %d\n", ret);
@@ -1209,21 +1232,24 @@ static int mtk_dsi_probe(struct platform_device *pdev)
 	dsi->engine_clk = devm_clk_get(dev, "engine");
 	if (IS_ERR(dsi->engine_clk)) {
 		ret = PTR_ERR(dsi->engine_clk);
-		dev_err(dev, "Failed to get engine clock: %d\n", ret);
+		if (ret != -EPROBE_DEFER)
+			dev_err(dev, "Failed to get engine clock: %d\n", ret);
 		goto err_unregister_host;
 	}
 
 	dsi->digital_clk = devm_clk_get(dev, "digital");
 	if (IS_ERR(dsi->digital_clk)) {
 		ret = PTR_ERR(dsi->digital_clk);
-		dev_err(dev, "Failed to get digital clock: %d\n", ret);
+		if (ret != -EPROBE_DEFER)
+			dev_err(dev, "Failed to get digital clock: %d\n", ret);
 		goto err_unregister_host;
 	}
 
 	dsi->hs_clk = devm_clk_get(dev, "hs");
 	if (IS_ERR(dsi->hs_clk)) {
 		ret = PTR_ERR(dsi->hs_clk);
-		dev_err(dev, "Failed to get hs clock: %d\n", ret);
+		if (ret != -EPROBE_DEFER)
+			dev_err(dev, "Failed to get hs clock: %d\n", ret);
 		goto err_unregister_host;
 	}
 

@@ -50,6 +50,8 @@
 #ifndef __LINUX_V4L2_CONTROLS_H
 #define __LINUX_V4L2_CONTROLS_H
 
+#include <linux/types.h>
+
 /* Control classes */
 #define V4L2_CTRL_CLASS_USER		0x00980000	/* Old-style 'user' controls */
 #define V4L2_CTRL_CLASS_MPEG		0x00990000	/* MPEG-compression controls */
@@ -189,6 +191,10 @@ enum v4l2_colorfx {
 /* The base for the imx driver controls.
  * We reserve 16 controls for this driver. */
 #define V4L2_CID_USER_IMX_BASE			(V4L2_CID_USER_BASE + 0x10b0)
+
+/* The base for the mediatek FD driver controls */
+/* We reserve 16 controls for this driver. */
+#define V4L2_CID_USER_MTK_FD_BASE		(V4L2_CID_USER_BASE + 0x10c0)
 
 /* MPEG-class control IDs */
 /* The MPEG controls are applicable to all codec controls

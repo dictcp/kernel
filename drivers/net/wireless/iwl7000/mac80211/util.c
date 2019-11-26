@@ -1595,7 +1595,8 @@ void ieee80211_send_auth(struct ieee80211_sub_if_data *sdata,
 }
 
 void ieee80211_send_deauth_disassoc(struct ieee80211_sub_if_data *sdata,
-				    const u8 *bssid, u16 stype, u16 reason,
+				    const u8 *da, const u8 *bssid,
+				    u16 stype, u16 reason,
 				    bool send_frame, u8 *frame_buf)
 {
 	struct ieee80211_local *local = sdata->local;
@@ -1606,7 +1607,7 @@ void ieee80211_send_deauth_disassoc(struct ieee80211_sub_if_data *sdata,
 	mgmt->frame_control = cpu_to_le16(IEEE80211_FTYPE_MGMT | stype);
 	mgmt->duration = 0; /* initialize only */
 	mgmt->seq_ctrl = 0; /* initialize only */
-	memcpy(mgmt->da, bssid, ETH_ALEN);
+	memcpy(mgmt->da, da, ETH_ALEN);
 	memcpy(mgmt->sa, sdata->vif.addr, ETH_ALEN);
 	memcpy(mgmt->bssid, bssid, ETH_ALEN);
 	/* u.deauth.reason_code == u.disassoc.reason_code */
@@ -1877,7 +1878,7 @@ int ieee80211_build_preq_ies(struct ieee80211_local *local, u8 *buffer,
 
 struct sk_buff *ieee80211_build_probe_req(struct ieee80211_sub_if_data *sdata,
 					  const u8 *src, const u8 *dst,
-					  u32 ratemask,
+					  const u8 *bssid, u32 ratemask,
 					  struct ieee80211_channel *chan,
 					  const u8 *ssid, size_t ssid_len,
 					  const u8 *ie, size_t ie_len,
@@ -1914,11 +1915,12 @@ struct sk_buff *ieee80211_build_probe_req(struct ieee80211_sub_if_data *sdata,
 					   rate_masks, &chandef, flags);
 	skb_put(skb, ies_len);
 
-	if (dst) {
-		mgmt = (struct ieee80211_mgmt *) skb->data;
+	mgmt = (void *)skb->data;
+	if (dst)
 		memcpy(mgmt->da, dst, ETH_ALEN);
-		memcpy(mgmt->bssid, dst, ETH_ALEN);
-	}
+
+	if (bssid)
+		memcpy(mgmt->bssid, bssid, ETH_ALEN);
 
 	IEEE80211_SKB_CB(skb)->flags |= IEEE80211_TX_INTFL_DONT_ENCRYPT;
 
@@ -2449,11 +2451,7 @@ int ieee80211_reconfig(struct ieee80211_local *local)
 
 	/* add back keys */
 	list_for_each_entry(sdata, &local->interfaces, list)
-		ieee80211_reset_crypto_tx_tailroom(sdata);
-
-	list_for_each_entry(sdata, &local->interfaces, list)
-		if (ieee80211_sdata_running(sdata))
-			ieee80211_enable_keys(sdata);
+		ieee80211_reenable_keys(sdata);
 
 	/* Reconfigure sched scan if it was interrupted by FW restart */
 	mutex_lock(&local->mtx);

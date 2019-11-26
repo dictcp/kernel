@@ -10,8 +10,6 @@
 
 #define CMDQ_NO_TIMEOUT		0xffffffff
 
-#define CMDQ_THR_MAX_COUNT	24
-
 /* GCE HW thread priority */
 #define CMDQ_THR_PRIO_LOWEST	0
 #define CMDQ_THR_PRIO_HIGHEST	1

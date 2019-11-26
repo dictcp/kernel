@@ -31,20 +31,25 @@ int cmdq_dev_get_client_reg(struct device *dev,
 			    struct cmdq_client_reg *client_reg, int idx)
 {
 	struct of_phandle_args spec;
+	int err;
 
 	if (!client_reg)
-		return -EINVAL;
+		return -ENOENT;
 
-	if (of_parse_phandle_with_args(dev->of_node, "mediatek,gce-client-reg",
-				       "#subsys-cells", idx, &spec)) {
-		dev_err(dev, "can't parse gce-client-reg property (%d)", idx);
+	err = of_parse_phandle_with_fixed_args(dev->of_node,
+					       "mediatek,gce-client-reg",
+					       3, idx, &spec);
+	if (err < 0) {
+		dev_err(dev,
+			"error %d can't parse gce-client-reg property (%d)",
+			err, idx);
 
-		return -EINVAL;
+		return err;
 	}
 
-	client_reg->subsys = spec.args[0];
-	client_reg->offset = spec.args[1];
-	client_reg->size = spec.args[2];
+	client_reg->subsys = (u8)spec.args[0];
+	client_reg->offset = (u16)spec.args[1];
+	client_reg->size = (u16)spec.args[2];
 	of_node_put(spec.np);
 
 	return 0;
@@ -75,6 +80,7 @@ struct cmdq_client *cmdq_mbox_create(struct device *dev, int index, u32 timeout)
 	client->client.dev = dev;
 	client->client.tx_block = false;
 	client->chan = mbox_request_channel(&client->client, index);
+	mutex_init(&client->mutex);
 
 	if (IS_ERR(client->chan)) {
 		long err;
@@ -146,8 +152,10 @@ void cmdq_pkt_destroy(struct cmdq_pkt *pkt)
 }
 EXPORT_SYMBOL(cmdq_pkt_destroy);
 
-static struct cmdq_instruction *cmdq_pkt_append_command(struct cmdq_pkt *pkt)
+static int cmdq_pkt_append_command(struct cmdq_pkt *pkt,
+				   struct cmdq_instruction inst)
 {
+	struct cmdq_instruction *cmd_ptr;
 
 	if (unlikely(pkt->cmd_buf_size + CMDQ_INST_SIZE > pkt->buf_size)) {
 		/*
@@ -161,136 +169,124 @@ static struct cmdq_instruction *cmdq_pkt_append_command(struct cmdq_pkt *pkt)
 		pkt->cmd_buf_size += CMDQ_INST_SIZE;
 		WARN_ONCE(1, "%s: buffer size %u is too small !\n",
 			__func__, (u32)pkt->buf_size);
-		return NULL;
+		return -ENOMEM;
 	}
 
+	cmd_ptr = pkt->va_base + pkt->cmd_buf_size;
+	*cmd_ptr = inst;
 	pkt->cmd_buf_size += CMDQ_INST_SIZE;
 
-	return pkt->va_base + pkt->cmd_buf_size - CMDQ_INST_SIZE;
+	return 0;
 }
 
 int cmdq_pkt_write(struct cmdq_pkt *pkt, u8 subsys, u16 offset, u32 value)
 {
-	struct cmdq_instruction *inst;
+	struct cmdq_instruction inst;
 
-	inst = cmdq_pkt_append_command(pkt);
-	if (!inst)
-		return -ENOMEM;
+	inst.op = CMDQ_CODE_WRITE;
+	inst.value = value;
+	inst.offset = offset;
+	inst.subsys = subsys;
 
-	inst->op = CMDQ_CODE_WRITE;
-	inst->value = value;
-	inst->offset = offset;
-	inst->subsys = subsys;
-
-	return 0;
+	return cmdq_pkt_append_command(pkt, inst);
 }
 EXPORT_SYMBOL(cmdq_pkt_write);
 
 int cmdq_pkt_write_mask(struct cmdq_pkt *pkt, u8 subsys,
 			u16 offset, u32 value, u32 mask)
 {
-	struct cmdq_instruction *inst;
-	u32 offset_mask = offset;
+	struct cmdq_instruction inst = { {0} };
+	u16 offset_mask = offset;
+	int err = 0;
 
 	if (mask != 0xffffffff) {
-		inst = cmdq_pkt_append_command(pkt);
-		if (!inst)
-			return -ENOMEM;
-
-		inst->op = CMDQ_CODE_MASK;
-		inst->mask = ~mask;
+		inst.op = CMDQ_CODE_MASK;
+		inst.mask = ~mask;
+		err = cmdq_pkt_append_command(pkt, inst);
 		offset_mask |= CMDQ_WRITE_ENABLE_MASK;
 	}
+	err |= cmdq_pkt_write(pkt, subsys, offset_mask, value);
 
-	return cmdq_pkt_write(pkt, subsys, offset_mask, value);
+	return err;
 }
 EXPORT_SYMBOL(cmdq_pkt_write_mask);
 
 int cmdq_pkt_wfe(struct cmdq_pkt *pkt, u16 event)
 {
-	struct cmdq_instruction *inst;
+	struct cmdq_instruction inst = { {0} };
 
 	if (event >= CMDQ_MAX_EVENT)
 		return -EINVAL;
 
-	inst = cmdq_pkt_append_command(pkt);
-	if (!inst)
-		return -ENOMEM;
+	inst.op = CMDQ_CODE_WFE;
+	inst.value = CMDQ_WFE_OPTION;
+	inst.event = event;
 
-	inst->op = CMDQ_CODE_WFE;
-	inst->value = CMDQ_WFE_OPTION;
-	inst->event = event;
-
-	return 0;
+	return cmdq_pkt_append_command(pkt, inst);
 }
 EXPORT_SYMBOL(cmdq_pkt_wfe);
 
 int cmdq_pkt_clear_event(struct cmdq_pkt *pkt, u16 event)
 {
-	struct cmdq_instruction *inst;
+	struct cmdq_instruction inst = { {0} };
 
 	if (event >= CMDQ_MAX_EVENT)
 		return -EINVAL;
 
-	inst = cmdq_pkt_append_command(pkt);
-	if (!inst)
-		return -ENOMEM;
+	inst.op = CMDQ_CODE_WFE;
+	inst.value = CMDQ_WFE_UPDATE;
+	inst.event = event;
 
-	inst->op = CMDQ_CODE_WFE;
-	inst->value = CMDQ_WFE_UPDATE;
-	inst->event = event;
-
-	return 0;
+	return cmdq_pkt_append_command(pkt, inst);
 }
 EXPORT_SYMBOL(cmdq_pkt_clear_event);
 
 int cmdq_pkt_poll(struct cmdq_pkt *pkt, u8 subsys,
-		  u16 offset, u32 value, u32 mask)
+		  u16 offset, u32 value)
 {
-	struct cmdq_instruction *inst;
+	struct cmdq_instruction inst;
 
-	if (mask != 0xffffffff) {
-		inst = cmdq_pkt_append_command(pkt);
-		if (!inst)
-			return -ENOMEM;
+	inst.op = CMDQ_CODE_POLL;
+	inst.value = value;
+	inst.offset = offset;
+	inst.subsys = subsys;
 
-		inst->op = CMDQ_CODE_MASK;
-		inst->value = ~mask;
-		offset = offset | 0x1;
-	}
-
-	inst = cmdq_pkt_append_command(pkt);
-	if (!inst)
-		return -ENOMEM;
-
-	inst->op = CMDQ_CODE_POLL;
-	inst->value = value;
-	inst->offset = offset;
-	inst->subsys = subsys;
-
-	return 0;
+	return cmdq_pkt_append_command(pkt, inst);
 }
 EXPORT_SYMBOL(cmdq_pkt_poll);
 
+int cmdq_pkt_poll_mask(struct cmdq_pkt *pkt, u8 subsys,
+		       u16 offset, u32 value, u32 mask)
+{
+	struct cmdq_instruction inst = { {0} };
+	int err = 0;
+
+	inst.op = CMDQ_CODE_MASK;
+	inst.mask = ~mask;
+	err = cmdq_pkt_append_command(pkt, inst);
+	offset = offset | 0x1;
+	err |= cmdq_pkt_poll(pkt, subsys, offset, value);
+
+	return err;
+}
+EXPORT_SYMBOL(cmdq_pkt_poll_mask);
+
 static int cmdq_pkt_finalize(struct cmdq_pkt *pkt)
 {
-	struct cmdq_instruction *inst;
+	struct cmdq_instruction inst = { {0} };
+	int err = 0;
 
-	inst = cmdq_pkt_append_command(pkt);
-	if (!inst)
-		return -ENOMEM;
+	/* insert EOC and generate IRQ for each command iteration */
+	inst.op = CMDQ_CODE_EOC;
+	inst.value = CMDQ_EOC_IRQ_EN;
+	err = cmdq_pkt_append_command(pkt, inst);
 
-	inst->op = CMDQ_CODE_EOC;
-	inst->value = CMDQ_EOC_IRQ_EN;
+	/* JUMP to end */
+	inst.op = CMDQ_CODE_JUMP;
+	inst.value = CMDQ_JUMP_PASS;
+	err |= cmdq_pkt_append_command(pkt, inst);
 
-	inst = cmdq_pkt_append_command(pkt);
-	if (!inst)
-		return -ENOMEM;
-
-	inst->op = CMDQ_CODE_JUMP;
-	inst->value = CMDQ_JUMP_PASS;
-
-	return 0;
+	return err;
 }
 
 static void cmdq_pkt_flush_async_cb(struct cmdq_cb_data data)
@@ -346,9 +342,11 @@ int cmdq_pkt_flush_async(struct cmdq_pkt *pkt, cmdq_async_flush_cb cb,
 		spin_unlock_irqrestore(&client->lock, flags);
 	}
 
+	mutex_lock(&client->mutex);
 	mbox_send_message(client->chan, pkt);
 	/* We can send next packet immediately, so just call txdone. */
 	mbox_client_txdone(client->chan, 0);
+	mutex_unlock(&client->mutex);
 
 	return 0;
 }

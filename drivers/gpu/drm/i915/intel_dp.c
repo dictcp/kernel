@@ -4445,14 +4445,16 @@ int intel_dp_retrain_link(struct intel_encoder *encoder,
  * retrain the link to get a picture. That's in case no
  * userspace component reacted to intermittent HPD dip.
  */
-static bool intel_dp_hotplug(struct intel_encoder *encoder,
-			     struct intel_connector *connector)
+static enum intel_hotplug_state
+intel_dp_hotplug(struct intel_encoder *encoder,
+		 struct intel_connector *connector,
+		 bool irq_received)
 {
 	struct drm_modeset_acquire_ctx ctx;
-	bool changed;
+	enum intel_hotplug_state state;
 	int ret;
 
-	changed = intel_encoder_hotplug(encoder, connector);
+	state = intel_encoder_hotplug(encoder, connector, irq_received);
 
 	drm_modeset_acquire_init(&ctx, 0);
 
@@ -4471,7 +4473,14 @@ static bool intel_dp_hotplug(struct intel_encoder *encoder,
 	drm_modeset_acquire_fini(&ctx);
 	WARN(ret, "Acquiring modeset locks failed with %i\n", ret);
 
-	return changed;
+	/*
+	 * Keeping it consistent with intel_ddi_hotplug() and
+	 * intel_hdmi_hotplug().
+	 */
+	if (state == INTEL_HOTPLUG_UNCHANGED && irq_received)
+		state = INTEL_HOTPLUG_RETRY;
+
+	return state;
 }
 
 /*
@@ -5114,6 +5123,22 @@ intel_dp_long_pulse(struct intel_connector *connector,
 		 */
 		status = connector_status_disconnected;
 		goto out;
+	} else {
+		/*
+		 * If display is now connected check links status,
+		 * there has been known issues of link loss triggering
+		 * long pulse.
+		 *
+		 * Some sinks (eg. ASUS PB287Q) seem to perform some
+		 * weird HPD ping pong during modesets. So we can apparently
+		 * end up with HPD going low during a modeset, and then
+		 * going back up soon after. And once that happens we must
+		 * retrain the link to get a picture. That's in case no
+		 * userspace component reacted to intermittent HPD dip.
+		 */
+		struct intel_encoder *encoder = &dp_to_dig_port(intel_dp)->base;
+
+		intel_dp_retrain_link(encoder, ctx);
 	}
 
 	/*

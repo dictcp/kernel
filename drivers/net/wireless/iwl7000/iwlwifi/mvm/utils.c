@@ -88,16 +88,10 @@ int iwl_mvm_send_cmd(struct iwl_mvm *mvm, struct iwl_host_cmd *cmd)
 	 * the mutex, this ensures we don't try to send two
 	 * (or more) synchronous commands at a time.
 	 */
-	if (!(cmd->flags & CMD_ASYNC)) {
+	if (!(cmd->flags & CMD_ASYNC))
 		lockdep_assert_held(&mvm->mutex);
-		if (!(cmd->flags & CMD_SEND_IN_IDLE))
-			iwl_mvm_ref(mvm, IWL_MVM_REF_SENDING_CMD);
-	}
 
 	ret = iwl_trans_send_cmd(mvm->trans, cmd);
-
-	if (!(cmd->flags & (CMD_ASYNC | CMD_SEND_IN_IDLE)))
-		iwl_mvm_unref(mvm, IWL_MVM_REF_SENDING_CMD);
 
 	/*
 	 * If the caller wants the SKB, then don't hide any problems, the
@@ -469,10 +463,10 @@ static void iwl_mvm_dump_umac_error_log(struct iwl_mvm *mvm)
 {
 	struct iwl_trans *trans = mvm->trans;
 	struct iwl_umac_error_event_table table;
-	u32 base = mvm->trans->umac_error_event_table;
+	u32 base = mvm->trans->dbg.umac_error_event_table;
 
 	if (!mvm->support_umac_log &&
-	    !(mvm->trans->error_event_table_tlv_status &
+	    !(mvm->trans->dbg.error_event_table_tlv_status &
 	      IWL_ERROR_EVENT_TABLE_UMAC))
 		return;
 
@@ -508,7 +502,7 @@ static void iwl_mvm_dump_lmac_error_log(struct iwl_mvm *mvm, u8 lmac_num)
 {
 	struct iwl_trans *trans = mvm->trans;
 	struct iwl_error_event_table table;
-	u32 val, base = mvm->trans->lmac_error_event_table[lmac_num];
+	u32 val, base = mvm->trans->dbg.lmac_error_event_table[lmac_num];
 
 	if (mvm->fwrt.cur_fw_img == IWL_UCODE_INIT) {
 		if (!base)
@@ -604,7 +598,7 @@ void iwl_mvm_dump_nic_error_log(struct iwl_mvm *mvm)
 
 	iwl_mvm_dump_lmac_error_log(mvm, 0);
 
-	if (mvm->trans->lmac_error_event_table[1])
+	if (mvm->trans->dbg.lmac_error_event_table[1])
 		iwl_mvm_dump_lmac_error_log(mvm, 1);
 
 	iwl_mvm_dump_umac_error_log(mvm);
@@ -653,12 +647,12 @@ int iwl_mvm_reconfig_scd(struct iwl_mvm *mvm, int queue, int fifo, int sta_id,
  * this case to clear the state indicating that station creation is in
  * progress.
  */
-int iwl_mvm_send_lq_cmd(struct iwl_mvm *mvm, struct iwl_lq_cmd *lq, bool sync)
+int iwl_mvm_send_lq_cmd(struct iwl_mvm *mvm, struct iwl_lq_cmd *lq)
 {
 	struct iwl_host_cmd cmd = {
 		.id = LQ_CMD,
 		.len = { sizeof(struct iwl_lq_cmd), },
-		.flags = sync ? 0 : CMD_ASYNC,
+		.flags = CMD_ASYNC,
 		.data = { lq, },
 	};
 
@@ -825,10 +819,6 @@ int iwl_mvm_update_low_latency(struct iwl_mvm *mvm, struct ieee80211_vif *vif,
 		return res;
 
 	iwl_mvm_bt_coex_vif_change(mvm);
-
-#ifdef CPTCFG_IWLMVM_VENDOR_CMDS
-	iwl_mvm_send_tcm_event(mvm, vif);
-#endif
 
 	return iwl_mvm_power_update_mac(mvm);
 }
@@ -1093,9 +1083,6 @@ static void iwl_mvm_tcm_iter(void *_data, u8 *mac, struct ieee80211_vif *vif)
 		iwl_mvm_update_low_latency(mvm, vif, low_latency,
 					   LOW_LATENCY_TRAFFIC);
 	} else {
-#ifdef CPTCFG_IWLMVM_VENDOR_CMDS
-		iwl_mvm_send_tcm_event(mvm, vif);
-#endif
 		iwl_mvm_update_quotas(mvm, false, NULL);
 	}
 
@@ -1114,12 +1101,6 @@ static void iwl_mvm_tcm_results(struct iwl_mvm *mvm)
 	ieee80211_iterate_active_interfaces(
 		mvm->hw, IEEE80211_IFACE_ITER_NORMAL,
 		iwl_mvm_tcm_iter, &data);
-
-#ifdef CPTCFG_IWLMVM_VENDOR_CMDS
-	/* send global only */
-	if (mvm->tcm.result.global_change && !data.any_sent)
-		iwl_mvm_send_tcm_event(mvm, NULL);
-#endif
 
 	if (fw_has_capa(&mvm->fw->ucode_capa, IWL_UCODE_TLV_CAPA_UMAC_SCAN))
 		iwl_mvm_config_scan(mvm);

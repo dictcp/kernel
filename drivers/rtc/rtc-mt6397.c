@@ -73,8 +73,8 @@
 #define RTC_NUM_YEARS		128
 #define RTC_MIN_YEAR_OFFSET	(RTC_MIN_YEAR - RTC_BASE_YEAR)
 
-struct mtk_rtc_compatible {
-	u32			wrtgr_addr;
+struct mtk_rtc_data {
+	u32			wrtgr;
 };
 
 struct mt6397_rtc {
@@ -84,22 +84,22 @@ struct mt6397_rtc {
 	struct regmap		*regmap;
 	int			irq;
 	u32			addr_base;
-	const struct mtk_rtc_compatible *dev_comp;
+	const struct mtk_rtc_data *data;
 };
 
-static const struct mtk_rtc_compatible mt6358_rtc_compat = {
-	.wrtgr_addr = RTC_WRTGR_MT6358,
+static const struct mtk_rtc_data mt6358_rtc_data = {
+	.wrtgr = RTC_WRTGR_MT6358,
 };
 
-static const struct mtk_rtc_compatible mt6397_rtc_compat = {
-	.wrtgr_addr = RTC_WRTGR_MT6397,
+static const struct mtk_rtc_data mt6397_rtc_data = {
+	.wrtgr = RTC_WRTGR_MT6397,
 };
 
 static const struct of_device_id mt6397_rtc_of_match[] = {
 	{ .compatible = "mediatek,mt6358-rtc",
-		.data = (void *)&mt6358_rtc_compat, },
+		.data = (void *)&mt6358_rtc_data, },
 	{ .compatible = "mediatek,mt6397-rtc",
-		.data = (void *)&mt6397_rtc_compat, },
+		.data = (void *)&mt6397_rtc_data, },
 	{}
 };
 MODULE_DEVICE_TABLE(of, mt6397_rtc_of_match);
@@ -111,7 +111,7 @@ static int mtk_rtc_write_trigger(struct mt6397_rtc *rtc)
 	u32 data;
 
 	ret = regmap_write(rtc->regmap,
-			   rtc->addr_base + rtc->dev_comp->wrtgr_addr, 1);
+			   rtc->addr_base + rtc->data->wrtgr, 1);
 	if (ret < 0)
 		return ret;
 
@@ -357,7 +357,6 @@ static int mtk_rtc_probe(struct platform_device *pdev)
 	struct resource *res;
 	struct mt6397_chip *mt6397_chip = dev_get_drvdata(pdev->dev.parent);
 	struct mt6397_rtc *rtc;
-	const struct of_device_id *of_id;
 	int ret;
 
 	rtc = devm_kzalloc(&pdev->dev, sizeof(struct mt6397_rtc), GFP_KERNEL);
@@ -367,12 +366,8 @@ static int mtk_rtc_probe(struct platform_device *pdev)
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	rtc->addr_base = res->start;
 
-	of_id = of_match_device(mt6397_rtc_of_match, &pdev->dev);
-	if (!of_id) {
-		dev_err(&pdev->dev, "Failed to probe of_node\n");
-		return -EINVAL;
-	}
-	rtc->dev_comp = of_id->data;
+	rtc->data = (struct mtk_rtc_data *)
+			of_device_get_match_data(&pdev->dev);
 
 	rtc->irq = platform_get_irq(pdev, 0);
 	if (rtc->irq < 0)
@@ -383,6 +378,10 @@ static int mtk_rtc_probe(struct platform_device *pdev)
 	mutex_init(&rtc->lock);
 
 	platform_set_drvdata(pdev, rtc);
+
+	rtc->rtc_dev = devm_rtc_allocate_device(rtc->dev);
+	if (IS_ERR(rtc->rtc_dev))
+		return PTR_ERR(rtc->rtc_dev);
 
 	ret = request_threaded_irq(rtc->irq, NULL,
 				   mtk_rtc_irq_handler_thread,
@@ -396,11 +395,11 @@ static int mtk_rtc_probe(struct platform_device *pdev)
 
 	device_init_wakeup(&pdev->dev, 1);
 
-	rtc->rtc_dev = rtc_device_register("mt6397-rtc", &pdev->dev,
-					   &mtk_rtc_ops, THIS_MODULE);
-	if (IS_ERR(rtc->rtc_dev)) {
+	rtc->rtc_dev->ops = &mtk_rtc_ops;
+
+	ret = rtc_register_device(rtc->rtc_dev);
+	if (ret) {
 		dev_err(&pdev->dev, "register rtc device failed\n");
-		ret = PTR_ERR(rtc->rtc_dev);
 		goto out_free_irq;
 	}
 
@@ -415,7 +414,6 @@ static int mtk_rtc_remove(struct platform_device *pdev)
 {
 	struct mt6397_rtc *rtc = platform_get_drvdata(pdev);
 
-	rtc_device_unregister(rtc->rtc_dev);
 	free_irq(rtc->irq, rtc);
 
 	return 0;
