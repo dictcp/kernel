@@ -2116,7 +2116,8 @@ void ieee80211_send_auth(struct ieee80211_sub_if_data *sdata,
 			 const u8 *da, const u8 *key, u8 key_len, u8 key_idx,
 			 u32 tx_flags);
 void ieee80211_send_deauth_disassoc(struct ieee80211_sub_if_data *sdata,
-				    const u8 *bssid, u16 stype, u16 reason,
+				    const u8 *da, const u8 *bssid,
+				    u16 stype, u16 reason,
 				    bool send_frame, u8 *frame_buf);
 
 enum {
@@ -2134,7 +2135,7 @@ int ieee80211_build_preq_ies(struct ieee80211_local *local, u8 *buffer,
 			     u32 flags);
 struct sk_buff *ieee80211_build_probe_req(struct ieee80211_sub_if_data *sdata,
 					  const u8 *src, const u8 *dst,
-					  u32 ratemask,
+					  const u8 *bssid, u32 ratemask,
 					  struct ieee80211_channel *chan,
 					  const u8 *ssid, size_t ssid_len,
 					  const u8 *ie, size_t ie_len,

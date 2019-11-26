@@ -167,6 +167,8 @@ config DRM_VRAM_HELPER
 	help
 	  Helpers for VRAM memory management
 
+source "drivers/gpu/drm/ttm/Kconfig"
+
 config DRM_GEM_CMA_HELPER
 	bool
 	depends on DRM
@@ -251,6 +253,7 @@ source "drivers/gpu/drm/i915/Kconfig"
 config DRM_VGEM
 	tristate "Virtual GEM provider"
 	depends on DRM
+	depends on ARM || ARM64 || (!ARCH_HAS_SYNC_DMA_FOR_DEVICE && !ARCH_HAS_SYNC_DMA_FOR_CPU)
 	help
 	  Choose this option to get a virtual graphics memory manager,
 	  as used by Mesa's software renderer for enhanced performance.
@@ -345,6 +348,8 @@ source "drivers/gpu/drm/pl111/Kconfig"
 source "drivers/gpu/drm/tve200/Kconfig"
 
 source "drivers/gpu/drm/xen/Kconfig"
+
+source "drivers/gpu/drm/img-rogue/Kconfig"
 
 # Keep legacy drivers last
 

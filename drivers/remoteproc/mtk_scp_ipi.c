@@ -5,6 +5,7 @@
 #include <asm/barrier.h>
 #include <linux/clk.h>
 #include <linux/err.h>
+#include <linux/io.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/platform_device.h>
@@ -12,89 +13,151 @@
 
 #include "mtk_common.h"
 
-int scp_ipi_register(struct platform_device *pdev,
-		     enum scp_ipi_id id,
+/**
+ * scp_ipi_register() - register an ipi function
+ *
+ * @scp:	mtk_scp structure
+ * @id:		IPI ID
+ * @handler:	IPI handler
+ * @priv:	private data for IPI handler
+ *
+ * Register an ipi function to receive ipi interrupt from SCP.
+ *
+ * Returns 0 if ipi registers successfully, -error on error.
+ */
+int scp_ipi_register(struct mtk_scp *scp,
+		     u32 id,
 		     scp_ipi_handler_t handler,
 		     void *priv)
 {
-	struct mtk_scp *scp = platform_get_drvdata(pdev);
-
 	if (!scp) {
-		dev_err(&pdev->dev, "scp device is not ready\n");
+		dev_err(scp->dev, "scp device is not ready\n");
 		return -EPROBE_DEFER;
 	}
 
-	if (WARN_ON(id < 0) || WARN_ON(id >= SCP_IPI_MAX) ||
-	    WARN_ON(handler == NULL))
+	if (WARN_ON(id >= SCP_IPI_MAX) || WARN_ON(handler == NULL))
 		return -EINVAL;
 
-	mutex_lock(&scp->desc_lock);
+	scp_ipi_lock(scp, id);
 	scp->ipi_desc[id].handler = handler;
 	scp->ipi_desc[id].priv = priv;
-	mutex_unlock(&scp->desc_lock);
+	scp_ipi_unlock(scp, id);
 
 	return 0;
 }
 EXPORT_SYMBOL_GPL(scp_ipi_register);
 
-void scp_ipi_unregister(struct platform_device *pdev, enum scp_ipi_id id)
+/**
+ * scp_ipi_unregister() - unregister an ipi function
+ *
+ * @scp:	mtk_scp structure
+ * @id:		IPI ID
+ *
+ * Unregister an ipi function to receive ipi interrupt from SCP.
+ */
+void scp_ipi_unregister(struct mtk_scp *scp, u32 id)
 {
-	struct mtk_scp *scp = platform_get_drvdata(pdev);
-
 	if (!scp)
 		return;
 
-	if (WARN_ON(id < 0) || WARN_ON(id >= SCP_IPI_MAX))
+	if (WARN_ON(id >= SCP_IPI_MAX))
 		return;
 
-	mutex_lock(&scp->desc_lock);
+	scp_ipi_lock(scp, id);
 	scp->ipi_desc[id].handler = NULL;
 	scp->ipi_desc[id].priv = NULL;
-	mutex_unlock(&scp->desc_lock);
+	scp_ipi_unlock(scp, id);
 }
 EXPORT_SYMBOL_GPL(scp_ipi_unregister);
 
 /*
- * Copy src to dst, where dst is in SCP SRAM region.
+ * scp_memcpy_aligned() - Copy src to dst, where dst is in SCP SRAM region.
+ *
+ * @dst:	Pointer to the destination buffer, should be in SCP SRAM region.
+ * @src:	Pointer to the source buffer.
+ * @len:	Length of the source buffer to be copied.
+ *
  * Since AP access of SCP SRAM don't support byte write, this always write a
  * full word at a time, and may cause some extra bytes to be written at the
  * beginning & ending of dst.
  */
-void scp_memcpy_aligned(void *dst, const void *src, unsigned int len)
+void scp_memcpy_aligned(void __iomem *dst, const void *src, unsigned int len)
 {
-	void *ptr;
+	void __iomem *ptr;
 	u32 val;
-	unsigned int i = 0;
+	unsigned int i = 0, remain;
 
 	if (!IS_ALIGNED((unsigned long)dst, 4)) {
-		ptr = (void *)ALIGN_DOWN((unsigned long)dst, 4);
+		ptr = (void __iomem *)ALIGN_DOWN((unsigned long)dst, 4);
 		i = 4 - (dst - ptr);
 		val = readl_relaxed(ptr);
 		memcpy((u8 *)&val + (4 - i), src, i);
 		writel_relaxed(val, ptr);
 	}
 
-	while (i + 4 <= len) {
-		val = *((u32 *)(src + i));
-		writel_relaxed(val, dst + i);
-		i += 4;
-	}
-	if (i < len) {
-		val = readl_relaxed(dst + i);
-		memcpy(&val, src + i, len - i);
-		writel_relaxed(val, dst + i);
+	__iowrite32_copy(dst + i, src + i, (len - i) / 4);
+	remain = (len - i) % 4;
+
+	if (remain > 0) {
+		val = readl_relaxed(dst + len - remain);
+		memcpy(&val, src + len - remain, remain);
+		writel_relaxed(val, dst + len - remain);
 	}
 }
 EXPORT_SYMBOL_GPL(scp_memcpy_aligned);
 
-int scp_ipi_send(struct platform_device *pdev,
-		 enum scp_ipi_id id,
-		 void *buf,
-		 unsigned int len,
+/**
+ * scp_ipi_lock() - Lock before operations of an IPI ID
+ *
+ * @scp:	mtk_scp structure
+ * @id:		IPI ID
+ *
+ * Note: This should not be used by drivers other than mtk_scp.
+ */
+void scp_ipi_lock(struct mtk_scp *scp, u32 id)
+{
+	if (WARN_ON(id >= SCP_IPI_MAX))
+		return;
+	mutex_lock(&scp->ipi_desc[id].lock);
+}
+EXPORT_SYMBOL_GPL(scp_ipi_lock);
+
+/**
+ * scp_ipi_lock() - Unlock after operations of an IPI ID
+ *
+ * @scp:	mtk_scp structure
+ * @id:		IPI ID
+ *
+ * Note: This should not be used by drivers other than mtk_scp.
+ */
+void scp_ipi_unlock(struct mtk_scp *scp, u32 id)
+{
+	if (WARN_ON(id >= SCP_IPI_MAX))
+		return;
+	mutex_unlock(&scp->ipi_desc[id].lock);
+}
+EXPORT_SYMBOL_GPL(scp_ipi_unlock);
+
+/**
+ * scp_ipi_send() - send data from AP to scp.
+ *
+ * @scp:	mtk_scp structure
+ * @id:		IPI ID
+ * @buf:	the data buffer
+ * @len:	the data buffer length
+ * @wait:	number of msecs to wait for ack. 0 to skip waiting.
+ *
+ * This function is thread-safe. When this function returns,
+ * SCP has received the data and starts the processing.
+ * When the processing completes, IPI handler registered
+ * by scp_ipi_register will be called in interrupt context.
+ *
+ * Returns 0 if sending data successfully, -error on error.
+ **/
+int scp_ipi_send(struct mtk_scp *scp, u32 id, void *buf, unsigned int len,
 		 unsigned int wait)
 {
-	struct mtk_scp *scp = platform_get_drvdata(pdev);
-	struct share_obj *send_obj = scp->send_buf;
+	struct mtk_share_obj __iomem *send_obj = scp->send_buf;
 	unsigned long timeout;
 	int ret;
 
@@ -123,15 +186,10 @@ int scp_ipi_send(struct platform_device *pdev,
 
 	scp_memcpy_aligned(send_obj->share_buf, buf, len);
 
-	send_obj->len = len;
-	send_obj->id = id;
+	writel(len, &send_obj->len);
+	writel(id, &send_obj->id);
 
 	scp->ipi_id_ack[id] = false;
-	/*
-	 * Ensure that all writes to SRAM are committed before sending the
-	 * interrupt to SCP.
-	 */
-	mb();
 	/* send the command to SCP */
 	writel(MT8183_HOST_IPC_INT_BIT, scp->reg_base + MT8183_HOST_TO_SCP);
 
@@ -142,8 +200,10 @@ int scp_ipi_send(struct platform_device *pdev,
 					 scp->ipi_id_ack[id],
 					 timeout);
 		scp->ipi_id_ack[id] = false;
-		if (ret < 0)
-			dev_warn(scp->dev, "scp ipi %d ack time out !", id);
+		if (WARN(!ret, "scp ipi %d ack time out !", id))
+			ret = -EIO;
+		else
+			ret = 0;
 	}
 
 clock_disable:

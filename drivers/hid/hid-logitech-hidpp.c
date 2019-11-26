@@ -2071,8 +2071,8 @@ static void hidpp_ff_destroy(struct ff_device *ff)
 static int hidpp_ff_init(struct hidpp_device *hidpp, u8 feature_index)
 {
 	struct hid_device *hid = hidpp->hid_dev;
-	struct hid_input *hidinput = list_entry(hid->inputs.next, struct hid_input, list);
-	struct input_dev *dev = hidinput->input;
+	struct hid_input *hidinput;
+	struct input_dev *dev;
 	const struct usb_device_descriptor *udesc = &(hid_to_usb_dev(hid)->descriptor);
 	const u16 bcdDevice = le16_to_cpu(udesc->bcdDevice);
 	struct ff_device *ff;
@@ -2080,6 +2080,13 @@ static int hidpp_ff_init(struct hidpp_device *hidpp, u8 feature_index)
 	struct hidpp_ff_private_data *data;
 	int error, j, num_slots;
 	u8 version;
+
+	if (list_empty(&hid->inputs)) {
+		hid_err(hid, "no inputs found\n");
+		return -ENODEV;
+	}
+	hidinput = list_entry(hid->inputs.next, struct hid_input, list);
+	dev = hidinput->input;
 
 	if (!dev) {
 		hid_err(hid, "Struct input_dev not set!\n");
@@ -2627,8 +2634,9 @@ static int m560_raw_event(struct hid_device *hdev, u8 *data, int size)
 		input_report_rel(mydata->input, REL_Y, v);
 
 		v = hid_snto32(data[6], 8);
-		hidpp_scroll_counter_handle_scroll(
-				&hidpp->vertical_wheel_counter, v);
+		if (v != 0)
+			hidpp_scroll_counter_handle_scroll(
+					&hidpp->vertical_wheel_counter, v);
 
 		input_sync(mydata->input);
 	}

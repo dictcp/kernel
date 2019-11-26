@@ -12,7 +12,6 @@
 extern unsigned long low_mem_thresholds[];
 extern unsigned int low_mem_threshold_count;
 extern unsigned int low_mem_threshold_last;
-void low_mem_notify(void);
 extern const struct file_operations low_mem_notify_fops;
 extern bool low_mem_margin_enabled;
 extern unsigned long low_mem_lowest_seen_anon_mem;
@@ -36,7 +35,12 @@ static inline unsigned long get_available_file_mem(void)
 			global_node_page_state(NR_ACTIVE_FILE) +
 			global_node_page_state(NR_INACTIVE_FILE);
 	unsigned long dirty_mem = global_node_page_state(NR_FILE_DIRTY);
+#ifdef CONFIG_KSTALED
+	unsigned long min_file_mem = kstaled_is_enabled() ?
+			0 : min_filelist_kbytes >> (PAGE_SHIFT - 10);
+#else
 	unsigned long min_file_mem = min_filelist_kbytes >> (PAGE_SHIFT - 10);
+#endif
 	unsigned long clean_file_mem = file_mem - dirty_mem;
 	/* Conservatively estimate the amount of available_file_mem */
 	unsigned long available_file_mem = (clean_file_mem > min_file_mem) ?
@@ -79,6 +83,10 @@ static inline unsigned long get_available_mem_adj(void)
 }
 
 #ifdef CONFIG_LOW_MEM_NOTIFY
+void low_mem_notify(void);
+
+extern atomic_t in_low_mem_check;
+
 /*
  * Returns TRUE if we are in a low memory state.
  */
@@ -100,6 +108,9 @@ static inline bool low_mem_check(void)
 
 	if (!low_mem_margin_enabled)
 		return false;
+
+	if (atomic_xchg(&in_low_mem_check, 1))
+		return was_low_mem;
 
 	if (unlikely(is_low_mem && !was_low_mem) &&
 	    __ratelimit(&low_mem_logging_ratelimit)) {
@@ -126,9 +137,15 @@ static inline bool low_mem_check(void)
 
 	low_mem_threshold_last = threshold_lowest;
 
+	atomic_set(&in_low_mem_check, 0);
+
 	return is_low_mem;
 }
 #else
+static inline void low_mem_notify(void)
+{
+}
+
 static inline bool low_mem_check(void)
 {
 	return false;

@@ -68,6 +68,7 @@
 #include <linux/nmi.h>
 #include <linux/low-mem-notify.h>
 #include <linux/mm_metrics.h>
+#include <linux/kstaled.h>
 
 #include <asm/sections.h>
 #include <asm/tlbflush.h>
@@ -1755,6 +1756,14 @@ void __init page_alloc_init_late(void)
 
 	/* Block until all are initialised */
 	wait_for_completion(&pgdat_init_all_done_comp);
+
+	/*
+	 * The number of managed pages has changed due to the initialisation
+	 * so the pcpu batch and high limits needs to be updated or the limits
+	 * will be artificially small.
+	 */
+	for_each_populated_zone(zone)
+		zone_pcp_update(zone);
 
 	/*
 	 * We initialized the rest of the deferred pages.  Permanently disable
@@ -3973,6 +3982,10 @@ should_reclaim_retry(gfp_t gfp_mask, unsigned order,
 	 * several times in the row.
 	 */
 	if (*no_progress_loops > MAX_RECLAIM_RETRIES) {
+		low_mem_notify();
+		if (kstaled_is_enabled())
+			kstaled_throttle_alloc(ac->zonelist->_zonerefs->zone,
+					       order, gfp_mask);
 		/* Before OOM, exhaust highatomic_reserve */
 		return unreserve_highatomic_pageblock(ac, true);
 	}
@@ -8038,7 +8051,6 @@ void free_contig_range(unsigned long pfn, unsigned nr_pages)
 }
 #endif
 
-#ifdef CONFIG_MEMORY_HOTPLUG
 /*
  * The zone indicated has a new number of managed_pages; batch sizes and percpu
  * page high values need to be recalulated.
@@ -8052,7 +8064,6 @@ void __meminit zone_pcp_update(struct zone *zone)
 				per_cpu_ptr(zone->pageset, cpu));
 	mutex_unlock(&pcp_batch_high_lock);
 }
-#endif
 
 void zone_pcp_reset(struct zone *zone)
 {

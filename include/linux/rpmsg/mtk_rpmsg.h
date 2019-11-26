@@ -1,12 +1,12 @@
 /* SPDX-License-Identifier: GPL-2.0 */
 /*
- * Copyright 2018 Google LLC.
+ * Copyright 2019 Google LLC.
  */
 
 #ifndef __LINUX_RPMSG_MTK_RPMSG_H
 #define __LINUX_RPMSG_MTK_RPMSG_H
 
-#include <linux/device.h>
+#include <linux/platform_device.h>
 #include <linux/remoteproc.h>
 
 typedef void (*ipi_handler_t)(void *data, unsigned int len, void *priv);
