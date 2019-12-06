@@ -21,13 +21,6 @@ Required properties:
 	priority: Priority of GCE thread.
 	atomic_exec: GCE processing continuous packets of commands in atomic
 		way.
-- #subsys-cells: Should be 3.
-	<&phandle subsys_number start_offset size>
-	phandle: Label name of a gce node.
-	subsys_number: specify the sub-system id which is corresponding
-		       to the register address.
-	start_offset: the start offset of register address that GCE can access.
-	size: the total size of register address that GCE can access.
 
 Required properties for a client device:
 - mboxes: Client use mailbox to communicate with GCE, it should have this
@@ -36,6 +29,12 @@ Optional properties for a client device:
 - mediatek,gce-client-reg: Specify the sub-system id which is corresponding
   to the register address, it should have this property and list of phandle,
   sub-system specifiers.
+  <&phandle subsys_number start_offset size>
+  phandle: Label name of a gce node.
+  subsys_number: specify the sub-system id which is corresponding
+                 to the register address.
+  start_offset: the start offset of register address that GCE can access.
+  size: the total size of register address that GCE can access.
 
 Some vaules of properties are defined in 'dt-bindings/gce/mt8173-gce.h'
 or 'dt-binding/gce/mt8183-gce.h'. Such as sub-system ids, thread priority, event ids.
@@ -49,7 +48,6 @@ Example:
 		clocks = <&infracfg CLK_INFRA_GCE>;
 		clock-names = "gce";
 		#mbox-cells = <3>;
-		#subsys-cells = <3>;
 	};
 
 Example for a client device:

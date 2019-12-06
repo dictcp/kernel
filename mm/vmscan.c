@@ -43,6 +43,7 @@
 #include <linux/kthread.h>
 #include <linux/freezer.h>
 #include <linux/memcontrol.h>
+#include <linux/page_idle.h>
 #include <linux/delayacct.h>
 #include <linux/sysctl.h>
 #include <linux/oom.h>
@@ -50,6 +51,7 @@
 #include <linux/prefetch.h>
 #include <linux/printk.h>
 #include <linux/dax.h>
+#include <linux/kstaled.h>
 
 #include <asm/tlbflush.h>
 #include <asm/div64.h>
@@ -1101,7 +1103,7 @@ static unsigned long shrink_page_list(struct list_head *page_list,
 				      struct scan_control *sc,
 				      enum ttu_flags ttu_flags,
 				      struct reclaim_stat *stat,
-				      bool force_reclaim)
+				      bool skip_reference_check)
 {
 	LIST_HEAD(ret_pages);
 	LIST_HEAD(free_pages);
@@ -1121,7 +1123,7 @@ static unsigned long shrink_page_list(struct list_head *page_list,
 		struct address_space *mapping;
 		struct page *page;
 		int may_enter_fs;
-		enum page_references references = PAGEREF_RECLAIM_CLEAN;
+		enum page_references references = PAGEREF_RECLAIM;
 		bool dirty, writeback;
 
 		cond_resched();
@@ -1253,8 +1255,11 @@ static unsigned long shrink_page_list(struct list_head *page_list,
 			}
 		}
 
-		if (!force_reclaim)
+		if (!skip_reference_check)
 			references = page_check_references(page, sc);
+		else if (kstaled_is_enabled())
+			references = kstaled_get_age(page) ?
+				     PAGEREF_ACTIVATE : PAGEREF_RECLAIM;
 
 		switch (references) {
 		case PAGEREF_ACTIVATE:
@@ -1315,6 +1320,9 @@ static unsigned long shrink_page_list(struct list_head *page_list,
 				goto keep_locked;
 		}
 
+		if (kstaled_is_enabled() && kstaled_get_age(page))
+			goto activate_locked;
+
 		/*
 		 * The page is mapped into the page tables of one or more
 		 * processes. Try to unmap it here.
@@ -1329,6 +1337,9 @@ static unsigned long shrink_page_list(struct list_head *page_list,
 				goto activate_locked;
 			}
 		}
+
+		if (kstaled_is_enabled() && kstaled_get_age(page))
+			goto activate_locked;
 
 		if (PageDirty(page)) {
 			/*
@@ -1478,7 +1489,8 @@ activate_locked:
 			try_to_free_swap(page);
 		VM_BUG_ON_PAGE(PageActive(page), page);
 		if (!PageMlocked(page)) {
-			SetPageActive(page);
+			if (!kstaled_is_enabled())
+				SetPageActive(page);
 			pgactivate++;
 			count_memcg_page_event(page, PGACTIVATE);
 		}
@@ -1535,6 +1547,56 @@ unsigned long reclaim_clean_pages_from_list(struct zone *zone,
 	mod_node_page_state(zone->zone_pgdat, NR_ISOLATED_FILE, -ret);
 	return ret;
 }
+
+#ifdef CONFIG_PROCESS_RECLAIM
+unsigned long reclaim_pages(struct list_head *page_list)
+{
+	unsigned long nr_reclaimed;
+	struct page *page;
+	unsigned long nr_isolated[2] = {0, };
+	struct pglist_data *pgdat = NULL;
+	struct scan_control sc = {
+		.gfp_mask = GFP_KERNEL,
+		.priority = DEF_PRIORITY,
+		.may_writepage = 1,
+		.may_unmap = 1,
+		.may_swap = 1,
+	};
+
+	if (list_empty(page_list))
+		return 0;
+
+	list_for_each_entry(page, page_list, lru) {
+		ClearPageActive(page);
+		test_and_clear_page_young(page);
+		if (pgdat == NULL)
+			pgdat = page_pgdat(page);
+		/* XXX: It could be multiple node in other config */
+		WARN_ON_ONCE(pgdat != page_pgdat(page));
+		if (!page_is_file_cache(page))
+			nr_isolated[0] += hpage_nr_pages(page);
+		else
+			nr_isolated[1] += hpage_nr_pages(page);
+	}
+
+	mod_node_page_state(pgdat, NR_ISOLATED_ANON, nr_isolated[0]);
+	mod_node_page_state(pgdat, NR_ISOLATED_FILE, nr_isolated[1]);
+
+	nr_reclaimed = shrink_page_list(page_list, pgdat, &sc,
+					TTU_IGNORE_ACCESS, NULL, true);
+
+	while (!list_empty(page_list)) {
+		page = lru_to_page(page_list);
+		list_del(&page->lru);
+		putback_lru_page(page);
+	}
+
+	mod_node_page_state(pgdat, NR_ISOLATED_ANON, -nr_isolated[0]);
+	mod_node_page_state(pgdat, NR_ISOLATED_FILE, -nr_isolated[1]);
+
+	return nr_reclaimed;
+}
+#endif
 
 /*
  * Attempt to remove the specified page from its LRU.  Only take this page
@@ -1606,6 +1668,7 @@ int __isolate_lru_page(struct page *page, isolate_mode_t mode)
 		 * sure the page is not being freed elsewhere -- the
 		 * page release code relies on it.
 		 */
+		kstaled_clear_age(page);
 		ClearPageLRU(page);
 		ret = 0;
 	}
@@ -1667,6 +1730,11 @@ static unsigned long isolate_lru_pages(unsigned long nr_to_scan,
 	unsigned long skipped = 0;
 	unsigned long scan, total_scan, nr_pages;
 	LIST_HEAD(pages_skipped);
+
+	if (kstaled_ring_inuse(lruvec_pgdat(lruvec))) {
+		*nr_scanned = 0;
+		return 0;
+	}
 
 	scan = 0;
 	for (total_scan = 0;
@@ -1778,6 +1846,7 @@ int isolate_lru_page(struct page *page)
 		if (PageLRU(page)) {
 			int lru = page_lru(page);
 			get_page(page);
+			kstaled_clear_age(page);
 			ClearPageLRU(page);
 			del_page_from_lru_list(page, lruvec, lru);
 			ret = 0;
@@ -1850,6 +1919,10 @@ putback_inactive_pages(struct lruvec *lruvec, struct list_head *page_list)
 		lruvec = mem_cgroup_page_lruvec(page, pgdat);
 
 		SetPageLRU(page);
+		if (kstaled_get_age(page)) {
+			ClearPageReclaim(page);
+			kstaled_set_age(page);
+		}
 		lru = page_lru(page);
 		add_page_to_lru_list(page, lruvec, lru);
 
@@ -1859,6 +1932,7 @@ putback_inactive_pages(struct lruvec *lruvec, struct list_head *page_list)
 			reclaim_stat->recent_rotated[file] += numpages;
 		}
 		if (put_page_testzero(page)) {
+			kstaled_clear_age(page);
 			__ClearPageLRU(page);
 			__ClearPageActive(page);
 			del_page_from_lru_list(page, lruvec, lru);
@@ -1878,6 +1952,68 @@ putback_inactive_pages(struct lruvec *lruvec, struct list_head *page_list)
 	 */
 	list_splice(&pages_to_free, page_list);
 }
+
+#ifdef CONFIG_KSTALED
+unsigned long node_shrink_list(struct pglist_data *node, struct list_head *list,
+			       unsigned long isolated, bool file, gfp_t gfp_mask)
+{
+	struct blk_plug plug;
+	unsigned long reclaimed;
+	struct lruvec *lruvec = node_lruvec(node);
+	struct scan_control sc = {
+		.gfp_mask = gfp_mask,
+		.may_writepage = 1,
+		.may_unmap = 1,
+		.may_swap = 1,
+	};
+
+	VM_BUG_ON(!isolated);
+	VM_BUG_ON(list_empty(list));
+
+	if (file) {
+		set_bit(PGDAT_DIRTY, &node->flags);
+		set_bit(PGDAT_WRITEBACK, &node->flags);
+		clear_bit(PGDAT_CONGESTED, &node->flags);
+	}
+
+	blk_start_plug(&plug);
+	reclaimed = shrink_page_list(list, node, &sc, 0, NULL, true);
+	blk_finish_plug(&plug);
+
+	spin_lock_irq(&node->lru_lock);
+
+	putback_inactive_pages(lruvec, list);
+	__mod_node_page_state(node, NR_ISOLATED_ANON + file, -isolated);
+	if (current_is_kswapd())
+		__count_vm_events(PGSTEAL_KSWAPD, reclaimed);
+	else
+		__count_vm_events(PGSTEAL_DIRECT, reclaimed);
+
+	spin_unlock_irq(&node->lru_lock);
+
+	free_unref_page_list(list);
+
+	if (file)
+		wakeup_flusher_threads(WB_REASON_VMSCAN);
+
+	return reclaimed;
+}
+
+inline unsigned long node_shrink_slab(struct pglist_data *node,
+				      unsigned long scanned,
+				      unsigned long total,
+				      gfp_t gfp_mask)
+{
+	int i;
+
+	for (i = 0; i < DEF_PRIORITY; i++) {
+		if (total >> i <= scanned)
+			break;
+	}
+
+	return shrink_slab(gfp_mask, node->node_id, NULL, i);
+}
+#endif
 
 /*
  * If a kernel thread (such as nfsd for loop-back mounts) services
@@ -2251,18 +2387,16 @@ static bool inactive_list_is_low(struct lruvec *lruvec, bool file,
 /*
  * Check low watermark used to prevent fscache thrashing during low memory.
  */
-static int file_is_low(struct lruvec *lruvec, struct scan_control *sc)
+static int file_is_low(struct lruvec *lruvec)
 {
 	unsigned long pages_min, active, inactive;
-	enum lru_list inactive_lru = LRU_FILE;
-	enum lru_list active_lru = LRU_FILE + LRU_ACTIVE;
 
 	if (!mem_cgroup_disabled())
 		return false;
 
 	pages_min = min_filelist_kbytes >> (PAGE_SHIFT - 10);
-	inactive = lruvec_lru_size(lruvec, inactive_lru, sc->reclaim_idx);
-	active = lruvec_lru_size(lruvec, active_lru, sc->reclaim_idx);
+	inactive = node_page_state(lruvec_pgdat(lruvec), NR_INACTIVE_FILE);
+	active = node_page_state(lruvec_pgdat(lruvec), NR_ACTIVE_FILE);
 
 	return ((active + inactive) < pages_min);
 }
@@ -2310,18 +2444,18 @@ static void get_scan_count(struct lruvec *lruvec, struct mem_cgroup *memcg,
 	unsigned long ap, fp;
 	enum lru_list lru;
 
+	/* If we have no swap space, do not bother scanning anon pages. */
+	if (!sc->may_swap || mem_cgroup_get_nr_swap_pages(memcg) <= 0) {
+		scan_balance = SCAN_FILE;
+		goto out;
+	}
+
 	/*
 	 * Do not scan file pages when swap is allowed by __GFP_IO and
 	 * file page count is low.
 	 */
-	if ((sc->gfp_mask & __GFP_IO) && file_is_low(lruvec, sc)) {
+	if ((sc->gfp_mask & __GFP_IO) && file_is_low(lruvec)) {
 		scan_balance = SCAN_ANON;
-		goto out;
-	}
-
-	/* If we have no swap space, do not bother scanning anon pages. */
-	if (!sc->may_swap || mem_cgroup_get_nr_swap_pages(memcg) <= 0) {
-		scan_balance = SCAN_FILE;
 		goto out;
 	}
 
@@ -3249,6 +3383,10 @@ unsigned long try_to_free_pages(struct zonelist *zonelist, int order,
 		.may_swap = 1,
 	};
 
+	if (kstaled_is_enabled())
+		return kstaled_direct_reclaim(zonelist->_zonerefs->zone,
+					      order, sc.gfp_mask);
+
 	/*
 	 * scan_control uses s8 fields for order, priority, and reclaim_idx.
 	 * Confirm they are large enough for max values.
@@ -3840,6 +3978,9 @@ void wakeup_kswapd(struct zone *zone, gfp_t gfp_flags, int order,
 {
 	pg_data_t *pgdat;
 
+	if (kstaled_is_enabled())
+		return;
+
 	if (!managed_zone(zone))
 		return;
 
@@ -4225,6 +4366,7 @@ void check_move_unevictable_pages(struct pagevec *pvec)
 			VM_BUG_ON_PAGE(PageActive(page), page);
 			ClearPageUnevictable(page);
 			del_page_from_lru_list(page, lruvec, LRU_UNEVICTABLE);
+			kstaled_set_age(page);
 			add_page_to_lru_list(page, lruvec, lru);
 			pgrescued++;
 		}

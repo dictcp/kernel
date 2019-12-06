@@ -968,7 +968,7 @@ struct snd_soc_dai_link {
 	/*
 	 * You MAY specify the link's platform/PCM/DMA driver, either by
 	 * device name, or by DT/OF node, but not both. Some forms of link
-	 * do not need a platform.
+	 * do not need a platform. In such case, platforms are not mandatory.
 	 */
 	const char *platform_name;
 	struct device_node *platform_of_node;
@@ -1131,6 +1131,7 @@ struct snd_soc_dai_link {
 #define COMP_CPU(_dai)			{ .dai_name = _dai, }
 #define COMP_CODEC(_name, _dai)		{ .name = _name, .dai_name = _dai, }
 #define COMP_PLATFORM(_name)		{ .name = _name }
+#define COMP_AUX(_name)			{ .name = _name }
 #define COMP_DUMMY()			{ .name = "snd-soc-dummy", .dai_name = "snd-soc-dummy-dai", }
 
 extern struct snd_soc_dai_link_component null_dailink_component[0];
@@ -1160,6 +1161,12 @@ struct snd_soc_aux_dev {
 	 */
 	const char *codec_name;
 	struct device_node *codec_of_node;
+
+	/*
+	 * name, codec_name, codec_of_node will be replaced
+	 * into dlc. don't use both in the same time
+	 */
+	struct snd_soc_dai_link_component dlc;
 
 	/* codec/machine specific init - e.g. add machine controls */
 	int (*init)(struct snd_soc_component *component);
@@ -1281,7 +1288,7 @@ struct snd_soc_card {
 	     (i)++)
 
 #define for_each_card_links(card, link)				\
-	list_for_each_entry(dai_link, &(card)->dai_link_list, list)
+	list_for_each_entry(link, &(card)->dai_link_list, list)
 #define for_each_card_links_safe(card, link, _link)			\
 	list_for_each_entry_safe(link, _link, &(card)->dai_link_list, list)
 
@@ -1306,7 +1313,6 @@ struct snd_soc_pcm_runtime {
 
 	/* Dynamic PCM BE runtime data */
 	struct snd_soc_dpcm_runtime dpcm[2];
-	int fe_compr;
 
 	long pmdown_time;
 
@@ -1331,6 +1337,7 @@ struct snd_soc_pcm_runtime {
 	/* bit field */
 	unsigned int dev_registered:1;
 	unsigned int pop_wait:1;
+	unsigned int fe_compr:1; /* for Dynamic PCM */
 };
 #define for_each_rtd_codec_dai(rtd, i, dai)\
 	for ((i) = 0;						       \

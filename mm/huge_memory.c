@@ -33,6 +33,8 @@
 #include <linux/page_idle.h>
 #include <linux/shmem_fs.h>
 #include <linux/oom.h>
+#include <linux/page_owner.h>
+#include <linux/kstaled.h>
 
 #include <asm/tlb.h>
 #include <asm/pgalloc.h>
@@ -2128,6 +2130,8 @@ static void __split_huge_pmd_locked(struct vm_area_struct *vma, pmd_t *pmd,
 			set_page_dirty(page);
 		if (!PageReferenced(page) && pmd_young(_pmd))
 			SetPageReferenced(page);
+		if (kstaled_is_enabled() && pmd_young(_pmd))
+			kstaled_update_age(page);
 		page_remove_rmap(page, true);
 		put_page(page);
 		add_mm_counter(mm, mm_counter_file(page), -HPAGE_PMD_NR);
@@ -2182,6 +2186,10 @@ static void __split_huge_pmd_locked(struct vm_area_struct *vma, pmd_t *pmd,
 			SetPageDirty(page);
 		write = pmd_write(old_pmd);
 		young = pmd_young(old_pmd);
+		if (kstaled_is_enabled() && young) {
+			kstaled_update_age(page);
+			young = false;
+		}
 		soft_dirty = pmd_soft_dirty(old_pmd);
 	}
 	VM_BUG_ON_PAGE(!page_count(page), page);
@@ -2413,7 +2421,8 @@ static void __split_huge_page_tail(struct page *head, int tail,
 			 (1L << PG_active) |
 			 (1L << PG_locked) |
 			 (1L << PG_unevictable) |
-			 (1L << PG_dirty)));
+			 (1L << PG_dirty) |
+			 KSTALED_AGE_MASK));
 
 	/* ->mapping in first tail page is compound_mapcount */
 	VM_BUG_ON_PAGE(tail > 2 && page_tail->mapping != TAIL_MAPPING,
@@ -2477,6 +2486,9 @@ static void __split_huge_page(struct page *page, struct list_head *list,
 	}
 
 	ClearPageCompound(head);
+
+	split_page_owner(head, HPAGE_PMD_ORDER);
+
 	/* See comment in __split_huge_page_tail() */
 	if (PageAnon(head)) {
 		/* Additional pin to radix tree of swap cache */

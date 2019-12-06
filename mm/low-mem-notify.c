@@ -30,11 +30,14 @@
 #include <linux/slab.h>
 #include <linux/mm.h>
 #include <linux/ctype.h>
+#include <linux/kstaled.h>
 
 #define MB (1 << 20)
 
 static DECLARE_WAIT_QUEUE_HEAD(low_mem_wait);
 static atomic_t low_mem_state = ATOMIC_INIT(0);
+atomic_t in_low_mem_check = ATOMIC_INIT(0);
+
 /* This is a list of thresholds in pages and should be in ascending order. */
 unsigned long low_mem_thresholds[LOW_MEM_THRESHOLD_MAX] = {
 	50 * MB / PAGE_SIZE };
@@ -74,12 +77,14 @@ static int low_mem_notify_open(struct inode *inode, struct file *file)
 	}
 
 	file->private_data = info;
+	kstaled_disable_throttle();
 out:
 	return err;
 }
 
 static int low_mem_notify_release(struct inode *inode, struct file *file)
 {
+	kstaled_enable_throttle();
 	kfree(file->private_data);
 	return 0;
 }

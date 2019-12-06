@@ -2253,8 +2253,9 @@ static void ieee80211_set_disassoc(struct ieee80211_sub_if_data *sdata,
 		    !ifmgd->have_beacon)
 			drv_mgd_prepare_tx(sdata->local, sdata, 0);
 
-		ieee80211_send_deauth_disassoc(sdata, ifmgd->bssid, stype,
-					       reason, tx, frame_buf);
+		ieee80211_send_deauth_disassoc(sdata, ifmgd->bssid,
+					       ifmgd->bssid, stype, reason,
+					       tx, frame_buf);
 	}
 
 	/* flush out frame - make sure the deauth was actually sent */
@@ -2455,8 +2456,8 @@ void ieee80211_mlme_send_probe_req(struct ieee80211_sub_if_data *sdata,
 {
 	struct sk_buff *skb;
 
-	skb = ieee80211_build_probe_req(sdata, src, dst, (u32)-1, channel,
-					ssid, ssid_len, NULL, 0,
+	skb = ieee80211_build_probe_req(sdata, src, dst, dst, (u32)-1,
+					channel, ssid, ssid_len, NULL, 0,
 					IEEE80211_PROBE_FLAG_DIRECTED);
 	if (skb)
 		ieee80211_tx_skb(sdata, skb);
@@ -2610,7 +2611,7 @@ struct sk_buff *ieee80211_ap_probereq_get(struct ieee80211_hw *hw,
 		ssid_len = ssid[1];
 
 	skb = ieee80211_build_probe_req(sdata, sdata->vif.addr, cbss->bssid,
-					(u32) -1, cbss->channel,
+					cbss->bssid, (u32)-1, cbss->channel,
 					ssid + 2, ssid_len,
 					NULL, 0, IEEE80211_PROBE_FLAG_DIRECTED);
 	rcu_read_unlock();
@@ -3357,7 +3358,7 @@ static bool ieee80211_assoc_success(struct ieee80211_sub_if_data *sdata,
 		/* TODO: OPEN: what happens if BSS color disable is set? */
 	}
 
-#if CFG80211_VERSION >= KERNEL_VERSION(99,0,0)
+#if CFG80211_VERSION >= KERNEL_VERSION(5,1,0)
 	if (cbss->transmitted_bss) {
 		bss_conf->nontransmitted = true;
 		ether_addr_copy(bss_conf->transmitter_bssid,
@@ -3761,7 +3762,7 @@ static bool ieee80211_rx_our_beacon(const u8 *tx_bssid,
 {
 	if (ether_addr_equal(tx_bssid, bss->bssid))
 		return true;
-#if CFG80211_VERSION >= KERNEL_VERSION(9,99,0)
+#if CFG80211_VERSION >= KERNEL_VERSION(5,1,0)
 	if (!bss->transmitted_bss)
 		return false;
 	return ether_addr_equal(tx_bssid, bss->transmitted_bss->bssid);
@@ -4475,7 +4476,7 @@ void ieee80211_mgd_quiesce(struct ieee80211_sub_if_data *sdata)
 		 * cfg80211 won't know and won't actually abort those attempts,
 		 * thus we need to do that ourselves.
 		 */
-		ieee80211_send_deauth_disassoc(sdata, bssid,
+		ieee80211_send_deauth_disassoc(sdata, bssid, bssid,
 					       IEEE80211_STYPE_DEAUTH,
 					       WLAN_REASON_DEAUTH_LEAVING,
 					       false, frame_buf);
@@ -5299,7 +5300,7 @@ int ieee80211_mgd_assoc(struct ieee80211_sub_if_data *sdata,
 			ifmgd->flags |= IEEE80211_STA_DISABLE_VHT;
 			ifmgd->flags |= IEEE80211_STA_DISABLE_HE;
 			netdev_info(sdata->dev,
-				    "disabling HE/HT/VHT due to WEP/TKIP use\n");
+				    "disabling HT/VHT/HE due to WEP/TKIP use\n");
 		}
 	}
 
@@ -5556,7 +5557,7 @@ int ieee80211_mgd_deauth(struct ieee80211_sub_if_data *sdata,
 			   ieee80211_get_reason_code_string(req->reason_code));
 
 		drv_mgd_prepare_tx(sdata->local, sdata, 0);
-		ieee80211_send_deauth_disassoc(sdata, req->bssid,
+		ieee80211_send_deauth_disassoc(sdata, req->bssid, req->bssid,
 					       IEEE80211_STYPE_DEAUTH,
 					       req->reason_code, tx,
 					       frame_buf);
@@ -5576,7 +5577,7 @@ int ieee80211_mgd_deauth(struct ieee80211_sub_if_data *sdata,
 			   ieee80211_get_reason_code_string(req->reason_code));
 
 		drv_mgd_prepare_tx(sdata->local, sdata, 0);
-		ieee80211_send_deauth_disassoc(sdata, req->bssid,
+		ieee80211_send_deauth_disassoc(sdata, req->bssid, req->bssid,
 					       IEEE80211_STYPE_DEAUTH,
 					       req->reason_code, tx,
 					       frame_buf);

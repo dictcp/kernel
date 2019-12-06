@@ -49,6 +49,7 @@ static void sanitize_boot_params(struct boot_params *boot_params)
 	 * problems again.
 	 */
 	if (boot_params->sentinel) {
+		/* fields in boot_params are left uninitialized, clear them */
 		static struct boot_params scratch;
 		char *bp_base = (char *)boot_params;
 		char *save_base = (char *)&scratch;
