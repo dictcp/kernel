@@ -102,6 +102,7 @@ static int mtk_mipi_tx_probe(struct platform_device *pdev)
 	struct mtk_mipi_tx *mipi_tx;
 	struct resource *mem;
 	const char *ref_clk_name;
+	struct clk *ref_clk;
 	struct clk_init_data clk_init = {
 		.num_parents = 1,
 		.parent_names = (const char * const *)&ref_clk_name,
@@ -125,14 +126,20 @@ static int mtk_mipi_tx_probe(struct platform_device *pdev)
 		return ret;
 	}
 
-	mipi_tx->ref_clk = devm_clk_get(dev, NULL);
-	if (IS_ERR(mipi_tx->ref_clk)) {
-		ret = PTR_ERR(mipi_tx->ref_clk);
+	ref_clk = devm_clk_get(dev, NULL);
+	if (IS_ERR(ref_clk)) {
+		ret = PTR_ERR(ref_clk);
 		dev_err(dev, "Failed to get reference clock: %d\n", ret);
 		return ret;
 	}
 
-	ref_clk_name = __clk_get_name(mipi_tx->ref_clk);
+	ret = of_property_read_u32(dev->of_node, "mipitx-current-drive",
+				   &mipi_tx->mipitx_drive);
+	/* If can't get the "mipi_tx->mipitx_drive", set it default 0x8 */
+	if (ret < 0)
+		mipi_tx->mipitx_drive = 0x8;
+
+	ref_clk_name = __clk_get_name(ref_clk);
 
 	ret = of_property_read_string(dev->of_node, "clock-output-names",
 				      &clk_init.name);

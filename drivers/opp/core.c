@@ -714,7 +714,7 @@ static int _set_opp_custom(const struct opp_table *opp_table,
 
 	data->old_opp.rate = old_freq;
 	size = sizeof(*old_supply) * opp_table->regulator_count;
-	if (IS_ERR(old_supply))
+	if (!old_supply)
 		memset(data->old_opp.supplies, 0, size);
 	else
 		memcpy(data->old_opp.supplies, old_supply, size);
@@ -856,7 +856,7 @@ int dev_pm_opp_set_rate(struct device *dev, unsigned long target_freq)
 		old_freq, freq);
 
 	/* Scaling up? Configure required OPPs before frequency */
-	if (freq > old_freq) {
+	if (freq >= old_freq) {
 		ret = _set_required_opps(dev, opp_table, opp);
 		if (ret)
 			goto put_opp;

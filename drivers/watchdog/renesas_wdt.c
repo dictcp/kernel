@@ -181,7 +181,6 @@ static inline bool rwdt_blacklisted(struct device *dev) { return false; }
 static int rwdt_probe(struct platform_device *pdev)
 {
 	struct rwdt_priv *priv;
-	struct resource *res;
 	struct clk *clk;
 	unsigned long clks_per_sec;
 	int ret, i;
@@ -193,8 +192,7 @@ static int rwdt_probe(struct platform_device *pdev)
 	if (!priv)
 		return -ENOMEM;
 
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	priv->base = devm_ioremap_resource(&pdev->dev, res);
+	priv->base = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(priv->base))
 		return PTR_ERR(priv->base);
 
@@ -239,6 +237,7 @@ static int rwdt_probe(struct platform_device *pdev)
 	watchdog_set_drvdata(&priv->wdev, priv);
 	watchdog_set_nowayout(&priv->wdev, nowayout);
 	watchdog_set_restart_priority(&priv->wdev, 0);
+	watchdog_stop_on_unregister(&priv->wdev);
 
 	/* This overrides the default timeout only if DT configuration was found */
 	ret = watchdog_init_timeout(&priv->wdev, 0, &pdev->dev);

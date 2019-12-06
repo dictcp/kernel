@@ -20,15 +20,10 @@ struct regmap;
 struct device;
 struct mtk_disp_mutex;
 struct mtk_mmsys_reg_data;
-enum mtk_mmsys_id {
-	MMSYS_MT2701,
-	MMSYS_MT2712,
-	MMSYS_MT8173,
-	MMSYS_MT8183,
-	MMSYS_MAX,
-};
 
-const struct mtk_mmsys_reg_data *mtk_ddp_get_mmsys_data(enum mtk_mmsys_id id);
+extern const struct mtk_mmsys_reg_data mt2701_mmsys_reg_data;
+extern const struct mtk_mmsys_reg_data mt8173_mmsys_reg_data;
+extern const struct mtk_mmsys_reg_data mt8183_mmsys_reg_data;
 void mtk_ddp_add_comp_to_path(void __iomem *config_regs,
 			      const struct mtk_mmsys_reg_data *reg_data,
 			      enum mtk_ddp_comp_id cur,

@@ -1789,6 +1789,8 @@ static int i915_emon_status(struct seq_file *m, void *unused)
 	if (!IS_GEN5(dev_priv))
 		return -ENODEV;
 
+	intel_runtime_pm_get(dev_priv);
+
 	ret = mutex_lock_interruptible(&dev->struct_mutex);
 	if (ret)
 		return ret;
@@ -1802,6 +1804,8 @@ static int i915_emon_status(struct seq_file *m, void *unused)
 	seq_printf(m, "Chipset power: %ld\n", chipset);
 	seq_printf(m, "GFX power: %ld\n", gfx);
 	seq_printf(m, "Total power: %ld\n", chipset + gfx);
+
+	intel_runtime_pm_put(dev_priv);
 
 	return 0;
 }
@@ -4581,6 +4585,13 @@ static int i915_hpd_storm_ctl_show(struct seq_file *m, void *data)
 {
 	struct drm_i915_private *dev_priv = m->private;
 	struct i915_hotplug *hotplug = &dev_priv->hotplug;
+
+	/* Synchronize with everything first in case there's been an HPD
+	 * storm, but we haven't finished handling it in the kernel yet
+	 */
+	synchronize_irq(dev_priv->drm.irq);
+	flush_work(&dev_priv->hotplug.dig_port_work);
+	flush_delayed_work(&dev_priv->hotplug.hotplug_work);
 
 	seq_printf(m, "Threshold: %d\n", hotplug->hpd_storm_threshold);
 	seq_printf(m, "Detected: %s\n",

@@ -3,6 +3,7 @@
  * Hantro VPU codec driver
  *
  * Copyright (C) 2018 Rockchip Electronics Co., Ltd.
+ * Copyright 2019 Google LLC
  */
 
 #include "hantro.h"
@@ -35,7 +36,7 @@ struct vp8_prob_tbl_packed {
  * filter taps taken to 7-bit precision,
  * reference RFC6386#Page-16, filters[8][6]
  */
-const u32 vp8_dec_mc_filter[8][6] = {
+const u32 hantro_vp8_dec_mc_filter[8][6] = {
 	{ 0, 0, 128, 0, 0, 0 },
 	{ 0, -6, 123, 12, -1, 0 },
 	{ 2, -11, 108, 36, -8, 1 },
@@ -165,8 +166,6 @@ int hantro_vp8_dec_init(struct hantro_ctx *ctx)
 					  &aux_buf->dma, GFP_KERNEL);
 	if (!aux_buf->cpu)
 		return -ENOMEM;
-
-	memset(aux_buf->cpu, 0, aux_buf->size);
 
 	/*
 	 * Allocate probability table buffer,

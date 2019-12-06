@@ -10,6 +10,7 @@
 #include <linux/kernel.h>
 #include <linux/platform_device.h>
 #include <linux/remoteproc.h>
+#include <linux/remoteproc/mtk_scp.h>
 
 #define MT8183_SW_RSTN			0x0
 #define MT8183_SW_RSTN_BIT		BIT(0)
@@ -43,6 +44,8 @@ struct scp_run {
 };
 
 struct scp_ipi_desc {
+	/* For protecting handler. */
+	struct mutex lock;
 	scp_ipi_handler_t handler;
 	void *priv;
 };
@@ -55,13 +58,11 @@ struct mtk_scp {
 	void __iomem *sram_base;
 	size_t sram_size;
 
-	struct share_obj *recv_buf;
-	struct share_obj *send_buf;
+	struct mtk_share_obj __iomem *recv_buf;
+	struct mtk_share_obj __iomem *send_buf;
 	struct scp_run run;
 	/* To prevent multiple ipi_send run concurrently. */
 	struct mutex send_lock;
-	/* For protecting ipi_desc field. */
-	struct mutex desc_lock;
 	struct scp_ipi_desc ipi_desc[SCP_IPI_MAX];
 	bool ipi_id_ack[SCP_IPI_MAX];
 	wait_queue_head_t ack_wq;
@@ -74,19 +75,20 @@ struct mtk_scp {
 };
 
 /**
- * struct share_obj - SRAM buffer shared with
- *		      AP and SCP
+ * struct mtk_share_obj - SRAM buffer shared with AP and SCP
  *
  * @id:		IPI id
  * @len:	share buffer length
  * @share_buf:	share buffer data
  */
-struct share_obj {
+struct mtk_share_obj {
 	u32 id;
 	u32 len;
 	u8 share_buf[SCP_SHARE_BUFFER_SIZE];
 };
 
-void scp_memcpy_aligned(void *dst, const void *src, unsigned int len);
+void scp_memcpy_aligned(void __iomem *dst, const void *src, unsigned int len);
+void scp_ipi_lock(struct mtk_scp *scp, u32 id);
+void scp_ipi_unlock(struct mtk_scp *scp, u32 id);
 
 #endif

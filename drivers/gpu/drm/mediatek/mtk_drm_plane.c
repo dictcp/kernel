@@ -15,6 +15,7 @@
 #include <drm/drmP.h>
 #include <drm/drm_atomic.h>
 #include <drm/drm_atomic_helper.h>
+#include <drm/drm_atomic_uapi.h>
 #include <drm/drm_plane_helper.h>
 
 #include "mtk_drm_crtc.h"
@@ -27,6 +28,12 @@
 static const u32 formats[] = {
 	DRM_FORMAT_XRGB8888,
 	DRM_FORMAT_ARGB8888,
+	DRM_FORMAT_BGRX8888,
+	DRM_FORMAT_BGRA8888,
+	DRM_FORMAT_ABGR8888,
+	DRM_FORMAT_XBGR8888,
+	DRM_FORMAT_RGB888,
+	DRM_FORMAT_BGR888,
 	DRM_FORMAT_RGB565,
 	DRM_FORMAT_UYVY,
 	DRM_FORMAT_YUYV,
@@ -77,8 +84,71 @@ static void mtk_drm_plane_destroy_state(struct drm_plane *plane,
 	kfree(to_mtk_plane_state(state));
 }
 
+static int mtk_plane_cursor_update(struct drm_plane *plane,
+				   struct drm_crtc *crtc,
+				   struct drm_framebuffer *fb,
+				   int crtc_x, int crtc_y,
+				   unsigned int crtc_w, unsigned int crtc_h,
+				   uint32_t src_x, uint32_t src_y,
+				   uint32_t src_w, uint32_t src_h)
+{
+	struct drm_plane_state *plane_state;
+	const struct drm_plane_helper_funcs *plane_helper_funcs =
+			plane->helper_private;
+	int ret;
+
+	plane_state = plane->funcs->atomic_duplicate_state(plane);
+
+	plane_state->crtc_x = crtc_x;
+	plane_state->crtc_y = crtc_y;
+	plane_state->crtc_h = crtc_h;
+	plane_state->crtc_w = crtc_w;
+	plane_state->src_x = src_x;
+	plane_state->src_y = src_y;
+	plane_state->src_h = src_h;
+	plane_state->src_w = src_w;
+
+	drm_atomic_set_fb_for_plane(plane_state, fb);
+
+	ret = plane_helper_funcs->atomic_check(plane, plane_state);
+	if (ret)
+		goto err_destroy;
+
+	swap(plane_state, plane->state);
+
+	mtk_drm_crtc_cursor_update(crtc, plane, plane_state);
+
+err_destroy:
+	plane->funcs->atomic_destroy_state(plane, plane_state);
+	return ret;
+}
+
+static int mtk_plane_update(struct drm_plane *plane,
+			    struct drm_crtc *crtc,
+			    struct drm_framebuffer *fb,
+			    int crtc_x, int crtc_y,
+			    unsigned int crtc_w, unsigned int crtc_h,
+			    uint32_t src_x, uint32_t src_y,
+			    uint32_t src_w, uint32_t src_h,
+			    struct drm_modeset_acquire_ctx *ctx)
+{
+	struct mtk_drm_private *private = plane->dev->dev_private;
+	uint32_t crtc_mask = (1 << drm_crtc_index(crtc));
+
+	if (crtc && plane == crtc->cursor &&
+	    plane->state->crtc == crtc &&
+	    !(private->commit.flush_for_cursor & crtc_mask))
+		return mtk_plane_cursor_update(plane, crtc, fb,
+				crtc_x, crtc_y, crtc_w, crtc_h,
+				src_x, src_y, src_w, src_h);
+
+	return drm_atomic_helper_update_plane(plane, crtc, fb,
+					      crtc_x, crtc_y, crtc_w, crtc_h,
+					      src_x, src_y, src_w, src_h, ctx);
+}
+
 static const struct drm_plane_funcs mtk_plane_funcs = {
-	.update_plane = drm_atomic_helper_update_plane,
+	.update_plane = mtk_plane_update,
 	.disable_plane = drm_atomic_helper_disable_plane,
 	.destroy = drm_plane_cleanup,
 	.reset = mtk_plane_reset,
@@ -91,6 +161,7 @@ static int mtk_plane_atomic_check(struct drm_plane *plane,
 {
 	struct drm_framebuffer *fb = state->fb;
 	struct drm_crtc_state *crtc_state;
+	int ret;
 
 	if (!fb)
 		return 0;
@@ -98,7 +169,18 @@ static int mtk_plane_atomic_check(struct drm_plane *plane,
 	if (!state->crtc)
 		return 0;
 
-	crtc_state = drm_atomic_get_crtc_state(state->state, state->crtc);
+	ret = mtk_drm_crtc_plane_check(state->crtc, plane,
+				       to_mtk_plane_state(state));
+	if (ret)
+		return ret;
+
+
+	if (state->state)
+		crtc_state = drm_atomic_get_existing_crtc_state(state->state,
+								state->crtc);
+	else /* Special case for asynchronous cursor updates. */
+		crtc_state = state->crtc->state;
+
 	if (IS_ERR(crtc_state))
 		return PTR_ERR(crtc_state);
 
@@ -139,8 +221,11 @@ static void mtk_plane_atomic_update(struct drm_plane *plane,
 	state->pending.y = plane->state->dst.y1;
 	state->pending.width = drm_rect_width(&plane->state->dst);
 	state->pending.height = drm_rect_height(&plane->state->dst);
+	state->pending.rotation = plane->state->rotation;
 	wmb(); /* Make sure the above parameters are set before update */
 	state->pending.dirty = true;
+
+	mtk_drm_crtc_plane_update(crtc, plane, state);
 }
 
 static void mtk_plane_atomic_disable(struct drm_plane *plane,
@@ -151,6 +236,8 @@ static void mtk_plane_atomic_disable(struct drm_plane *plane,
 	state->pending.enable = false;
 	wmb(); /* Make sure the above parameter is set before update */
 	state->pending.dirty = true;
+	/* Fetch CRTC from old plane state when disabling. */
+	mtk_drm_crtc_plane_update(old_state->crtc, plane, state);
 }
 
 static const struct drm_plane_helper_funcs mtk_plane_helper_funcs = {
@@ -160,7 +247,8 @@ static const struct drm_plane_helper_funcs mtk_plane_helper_funcs = {
 };
 
 int mtk_plane_init(struct drm_device *dev, struct drm_plane *plane,
-		   unsigned long possible_crtcs, enum drm_plane_type type)
+		   unsigned long possible_crtcs, enum drm_plane_type type,
+		   unsigned int supported_rotations)
 {
 	int err;
 
@@ -170,6 +258,14 @@ int mtk_plane_init(struct drm_device *dev, struct drm_plane *plane,
 	if (err) {
 		DRM_ERROR("failed to initialize plane\n");
 		return err;
+	}
+
+	if (supported_rotations & ~DRM_MODE_ROTATE_0) {
+		err = drm_plane_create_rotation_property(plane,
+							 DRM_MODE_ROTATE_0,
+							 supported_rotations);
+		if (err)
+			DRM_INFO("Create rotation property failed\n");
 	}
 
 	drm_plane_helper_add(plane, &mtk_plane_helper_funcs);

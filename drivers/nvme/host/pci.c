@@ -1655,6 +1655,9 @@ static void nvme_map_cmb(struct nvme_dev *dev)
 	struct pci_dev *pdev = to_pci_dev(dev->dev);
 	int bar;
 
+	if (dev->cmb_size)
+		return;
+
 	dev->cmbsz = readl(dev->bar + NVME_REG_CMBSZ);
 	if (!dev->cmbsz)
 		return;
@@ -2139,7 +2142,6 @@ static void nvme_pci_disable(struct nvme_dev *dev)
 {
 	struct pci_dev *pdev = to_pci_dev(dev->dev);
 
-	nvme_release_cmb(dev);
 	pci_free_irq_vectors(pdev);
 
 	if (pci_is_enabled(pdev)) {
@@ -2472,7 +2474,7 @@ static void nvme_async_probe(void *data, async_cookie_t cookie)
 {
 	struct nvme_dev *dev = data;
 
-	nvme_reset_ctrl_sync(&dev->ctrl);
+	flush_work(&dev->ctrl.reset_work);
 	flush_work(&dev->ctrl.scan_work);
 	nvme_put_ctrl(&dev->ctrl);
 }
@@ -2539,6 +2541,7 @@ static int nvme_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 
 	dev_info(dev->ctrl.device, "pci function %s\n", dev_name(&pdev->dev));
 
+	nvme_reset_ctrl(&dev->ctrl);
 	nvme_get_ctrl(&dev->ctrl);
 	async_schedule(nvme_async_probe, dev);
 
@@ -2586,19 +2589,19 @@ static void nvme_remove(struct pci_dev *pdev)
 	struct nvme_dev *dev = pci_get_drvdata(pdev);
 
 	nvme_change_ctrl_state(&dev->ctrl, NVME_CTRL_DELETING);
-
-	cancel_work_sync(&dev->ctrl.reset_work);
 	pci_set_drvdata(pdev, NULL);
 
 	if (!pci_device_is_present(pdev)) {
 		nvme_change_ctrl_state(&dev->ctrl, NVME_CTRL_DEAD);
 		nvme_dev_disable(dev, true);
+		nvme_dev_remove_admin(dev);
 	}
 
 	flush_work(&dev->ctrl.reset_work);
 	nvme_stop_ctrl(&dev->ctrl);
 	nvme_remove_namespaces(&dev->ctrl);
 	nvme_dev_disable(dev, true);
+	nvme_release_cmb(dev);
 	nvme_free_host_mem(dev);
 	nvme_dev_remove_admin(dev);
 	nvme_free_queues(dev, 0);
@@ -2629,11 +2632,21 @@ static int nvme_deep_state(struct nvme_dev *dev)
 	if (ret < 0)
 		goto unfreeze;
 
+	/*
+	 * A saved state prevents pci pm from generically controlling
+	 * the device's power. If we're using protocol specific
+	 * settings, we don't want pci interfering.
+	 */
+	pci_save_state(pdev);
+
 	ret = nvme_set_features(ctrl, NVME_FEAT_POWER_MGMT, dev->ctrl.npss,
 				NULL, 0, NULL);
 	if (ret < 0)
 		goto unfreeze;
 	if (ret) {
+		/* discard the saved state */
+		pci_load_saved_state(pdev, NULL);
+
 		/*
 		 * Clearing npss forces a controller reset on resume. The
 		 * correct value will be resdicovered then.
@@ -2641,13 +2654,6 @@ static int nvme_deep_state(struct nvme_dev *dev)
 		ctrl->npss = 0;
 		nvme_dev_disable(dev, true);
 		ret = 0;
-	} else {
-		/*
-		 * A saved state prevents pci pm from generically controlling
-		 * the device's power. If we're using protocol specific
-		 * settings, we don't want pci interfering.
-		 */
-		pci_save_state(pdev);
 	}
 unfreeze:
 	nvme_unfreeze(ctrl);
@@ -2679,7 +2685,8 @@ static int nvme_resume(struct device *dev)
 	struct pci_dev *pdev = to_pci_dev(dev);
 	struct nvme_dev *ndev = pci_get_drvdata(pdev);
 
-	return pm_resume_via_firmware() || !ndev->ctrl.npss ?
+	return pm_resume_via_firmware() || !ndev->ctrl.npss ||
+	       (ndev->ctrl.quirks & NVME_QUIRK_SIMPLE_SUSPEND) ?
 		nvme_simple_resume(dev) : nvme_make_operational(ndev);
 }
 
@@ -2702,7 +2709,8 @@ static int nvme_suspend(struct device *dev)
 	 * use host managed nvme power settings for lowest idle power. This
 	 * should have quicker resume latency than a full device shutdown.
 	 */
-	return pm_suspend_via_firmware() || !ndev->ctrl.npss ?
+	return pm_suspend_via_firmware() || !ndev->ctrl.npss ||
+	       (ndev->ctrl.quirks & NVME_QUIRK_SIMPLE_SUSPEND) ?
 		nvme_simple_suspend(dev) : nvme_deep_state(ndev);
 }
 

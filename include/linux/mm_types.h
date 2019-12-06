@@ -226,6 +226,11 @@ struct page_frag_cache {
 
 typedef unsigned long vm_flags_t;
 
+static inline atomic_t *compound_mapcount_ptr(struct page *page)
+{
+	return &page[1].compound_mapcount;
+}
+
 /*
  * A region containing a mapping of a non-memory backed file under NOMMU
  * conditions.  These are held in a global tree and are pinned by the VMAs that
@@ -497,6 +502,11 @@ struct mm_struct {
 #if IS_ENABLED(CONFIG_HMM)
 		/* HMM needs to track a few things per mm */
 		struct hmm *hmm;
+#endif
+#ifdef CONFIG_KSTALED
+		struct list_head mm_list;
+		struct rcu_head rcu_head;
+		atomic_t throttle_disabled;
 #endif
 	} __randomize_layout;
 

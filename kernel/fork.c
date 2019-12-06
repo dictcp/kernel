@@ -91,6 +91,7 @@
 #include <linux/kcov.h>
 #include <linux/livepatch.h>
 #include <linux/thread_info.h>
+#include <linux/kstaled.h>
 
 #include <asm/pgtable.h>
 #include <asm/pgalloc.h>
@@ -615,7 +616,23 @@ static void check_mm(struct mm_struct *mm)
 }
 
 #define allocate_mm()	(kmem_cache_alloc(mm_cachep, GFP_KERNEL))
+#ifdef CONFIG_KSTALED
+static void rcu_free_mm(struct rcu_head *rcu)
+{
+	struct mm_struct *mm = container_of(rcu, struct mm_struct, rcu_head);
+
+	kmem_cache_free(mm_cachep, mm);
+}
+
+static void free_mm(struct mm_struct *mm)
+{
+	kstaled_del_mm(mm);
+
+	call_rcu(&mm->rcu_head, rcu_free_mm);
+}
+#else
 #define free_mm(mm)	(kmem_cache_free(mm_cachep, (mm)))
+#endif
 
 /*
  * Called when the last reference to the mm
@@ -975,6 +992,7 @@ static struct mm_struct *mm_init(struct mm_struct *mm, struct task_struct *p,
 		goto fail_nocontext;
 
 	mm->user_ns = get_user_ns(user_ns);
+	kstaled_add_mm(mm);
 	return mm;
 
 fail_nocontext:
@@ -2622,7 +2640,7 @@ int sysctl_max_threads(struct ctl_table *table, int write,
 	struct ctl_table t;
 	int ret;
 	int threads = max_threads;
-	int min = MIN_THREADS;
+	int min = 1;
 	int max = MAX_THREADS;
 
 	t = *table;
@@ -2634,7 +2652,7 @@ int sysctl_max_threads(struct ctl_table *table, int write,
 	if (ret || !write)
 		return ret;
 
-	set_max_threads(threads);
+	max_threads = threads;
 
 	return 0;
 }

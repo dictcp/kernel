@@ -286,4 +286,3 @@ const struct mtk_mipitx_data mt8173_mipitx_data = {
 	.mipi_tx_enable_signal = mtk_mipi_tx_power_on_signal,
 	.mipi_tx_disable_signal = mtk_mipi_tx_power_off_signal,
 };
-
