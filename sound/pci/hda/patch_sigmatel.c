@@ -1873,17 +1873,6 @@ static void stac92hd73xx_fixup_alienware_m17x(struct hda_codec *codec,
 	spec->eapd_switch = 0;
 }
 
-static void stac92hd73xx_disable_automute(struct hda_codec *codec,
-				    const struct hda_fixup *fix, int action)
-{
-	struct sigmatel_spec *spec = codec->spec;
-
-	if (action != HDA_FIXUP_ACT_PRE_PROBE)
-		return;
-
-	spec->gen.suppress_auto_mute = 1;
-}
-
 static void stac92hd73xx_fixup_no_jd(struct hda_codec *codec,
 				     const struct hda_fixup *fix, int action)
 {
