@@ -1016,8 +1016,17 @@ static enum page_references page_check_references(struct page *page,
 	int referenced_ptes, referenced_page;
 	unsigned long vm_flags;
 
+	if (kstaled_is_enabled()) {
+		if (kstaled_get_age(page))
+			return PAGEREF_KEEP;
+		if (!PageTransHuge(page) && page_mapcount(page) <= 1)
+			return PAGEREF_RECLAIM;
+	}
 	referenced_ptes = page_referenced(page, 1, sc->target_mem_cgroup,
 					  &vm_flags);
+	if (kstaled_is_enabled())
+		return referenced_ptes ? PAGEREF_KEEP : PAGEREF_RECLAIM;
+
 	referenced_page = TestClearPageReferenced(page);
 
 	/*
@@ -1257,9 +1266,6 @@ static unsigned long shrink_page_list(struct list_head *page_list,
 
 		if (!skip_reference_check)
 			references = page_check_references(page, sc);
-		else if (kstaled_is_enabled())
-			references = kstaled_get_age(page) ?
-				     PAGEREF_ACTIVATE : PAGEREF_RECLAIM;
 
 		switch (references) {
 		case PAGEREF_ACTIVATE:
@@ -1320,6 +1326,7 @@ static unsigned long shrink_page_list(struct list_head *page_list,
 				goto keep_locked;
 		}
 
+		/* split_huge_page_to_list() might have split a young pmd */
 		if (kstaled_is_enabled() && kstaled_get_age(page))
 			goto activate_locked;
 
@@ -1337,9 +1344,6 @@ static unsigned long shrink_page_list(struct list_head *page_list,
 				goto activate_locked;
 			}
 		}
-
-		if (kstaled_is_enabled() && kstaled_get_age(page))
-			goto activate_locked;
 
 		if (PageDirty(page)) {
 			/*
@@ -1977,7 +1981,7 @@ unsigned long node_shrink_list(struct pglist_data *node, struct list_head *list,
 	}
 
 	blk_start_plug(&plug);
-	reclaimed = shrink_page_list(list, node, &sc, 0, NULL, true);
+	reclaimed = shrink_page_list(list, node, &sc, 0, NULL, false);
 	blk_finish_plug(&plug);
 
 	spin_lock_irq(&node->lru_lock);
@@ -2006,12 +2010,12 @@ inline unsigned long node_shrink_slab(struct pglist_data *node,
 {
 	int i;
 
-	for (i = 0; i < DEF_PRIORITY; i++) {
-		if (total >> i <= scanned)
+	for (i = 1; i <= DEF_PRIORITY; i++) {
+		if (total >> i < scanned)
 			break;
 	}
 
-	return shrink_slab(gfp_mask, node->node_id, NULL, i);
+	return shrink_slab(gfp_mask, node->node_id, NULL, i - 1);
 }
 #endif
 
