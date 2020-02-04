@@ -5695,7 +5695,6 @@ enum {
 	ALC269_FIXUP_LIFEBOOK,
 	ALC269_FIXUP_LIFEBOOK_EXTMIC,
 	ALC269_FIXUP_LIFEBOOK_HP_PIN,
-	ALC269_FIXUP_LIFEBOOK_HP_PIN_ORDER,
 	ALC269_FIXUP_LIFEBOOK_NO_HP_TO_LINEOUT,
 	ALC255_FIXUP_LIFEBOOK_U7x7_HEADSET_MIC,
 	ALC269_FIXUP_AMIC,
@@ -5922,27 +5921,7 @@ static const struct hda_fixup alc269_fixups[] = {
 	[ALC269_FIXUP_LIFEBOOK_HP_PIN] = {
 		.type = HDA_FIXUP_PINS,
 		.v.pins = (const struct hda_pintbl[]) {
-			/* Neverware:
-			 * Changed this from 0x0221102f to 0x0221100f to resolve
-			 * OVER-5447.
-			 *
-			 * The dock headphone pin is { 0x1a, 0x2121101f }.
-			 * For the buildin headphone to showup before the dock headphone
-			 * the sequence (last byte or 2 hex chars) must be lower;
-			 * upstreams fix of 0x0221102f doesn't work on this specific
-			 * machine, so 0x0221100f is used instead. This should keep all
-			 * of these machines working as intended.
-			 */
-			{ 0x21, 0x0221100f }, /* HP out */
-			{ }
-		},
-	},
-	[ALC269_FIXUP_LIFEBOOK_HP_PIN_ORDER] = {
-		.type = HDA_FIXUP_PINS,
-		/* Make sure the builtin HP is first. */
-		.v.pins = (const struct hda_pintbl[]) {
-			{ 0x21, 0x0221101f }, /* HP out */
-			{ 0x1a, 0x2221102f }, /* HP dock out */
+			{ 0x21, 0x0221102f }, /* HP out */
 			{ }
 		},
 	},
@@ -7105,8 +7084,8 @@ static const struct snd_pci_quirk alc269_fixup_tbl[] = {
 	SND_PCI_QUIRK(0x104d, 0x9099, "Sony VAIO S13", ALC275_FIXUP_SONY_DISABLE_AAMIX),
 	SND_PCI_QUIRK(0x10cf, 0x1475, "Lifebook", ALC269_FIXUP_LIFEBOOK),
 	SND_PCI_QUIRK(0x10cf, 0x159f, "Lifebook E780", ALC269_FIXUP_LIFEBOOK_NO_HP_TO_LINEOUT),
-	SND_PCI_QUIRK(0x10cf, 0x15dc, "Lifebook T731", ALC269_FIXUP_LIFEBOOK_HP_PIN_ORDER),
-	SND_PCI_QUIRK(0x10cf, 0x1757, "Lifebook T732/E752", ALC269_FIXUP_LIFEBOOK_HP_PIN),
+	SND_PCI_QUIRK(0x10cf, 0x15dc, "Lifebook T731", ALC269_FIXUP_LIFEBOOK_HP_PIN),
+	SND_PCI_QUIRK(0x10cf, 0x1757, "Lifebook E752", ALC269_FIXUP_LIFEBOOK_HP_PIN),
 	SND_PCI_QUIRK(0x10cf, 0x1629, "Lifebook U7x7", ALC255_FIXUP_LIFEBOOK_U7x7_HEADSET_MIC),
 	SND_PCI_QUIRK(0x10cf, 0x1845, "Lifebook U904", ALC269_FIXUP_LIFEBOOK_EXTMIC),
 	SND_PCI_QUIRK(0x10ec, 0x10f2, "Intel Reference board", ALC700_FIXUP_INTEL_REFERENCE),
