@@ -5140,22 +5140,6 @@ static void alc_fixup_disable_aamix(struct hda_codec *codec,
 	}
 }
 
-static void alc_fixup_tpt440_apply_pincfgs(struct hda_codec *codec,
-					   const struct hda_fixup *fix,
-					   int action,
-					   const struct hda_pintbl *pincfgs)
-{
-	struct alc_spec *spec = codec->spec;
-
-	if (action == HDA_FIXUP_ACT_PRE_PROBE) {
-		spec->no_shutup_pins = 1; /* reduce click noise */
-		spec->reboot_notify = snd_hda_gen_reboot_notify; /* reduce noise */
-		spec->parse_flags = HDA_PINCFG_NO_HP_FIXUP;
-		codec->power_save_node = 0; /* avoid click noises */
-		snd_hda_apply_pincfgs(codec, pincfgs);
-	}
-}
-
 /* fixup for Thinkpad docks: add dock pins, avoid HP parser fixup */
 static void alc_fixup_tpt440_dock(struct hda_codec *codec,
 				  const struct hda_fixup *fix, int action)
@@ -5165,26 +5149,13 @@ static void alc_fixup_tpt440_dock(struct hda_codec *codec,
 		{ 0x19, 0x21a11010 }, /* dock mic */
 		{ }
 	};
-	alc_fixup_tpt440_apply_pincfgs(codec, fix, action, pincfgs);
-}
+	struct alc_spec *spec = codec->spec;
 
-static void alc_fixup_tpt440_dock_builtin_first(struct hda_codec *codec,
-				  const struct hda_fixup *fix, int action)
-{
-	/* On the T440p pin 0x15 default is 0x0321101f.
-	 * Pin 0x16 is the dock headphone.
-	 * To make sure the headphone comes before the
-	 * dock headphone set the DA of 2.
-	 * This makes it such the proper headphone playback switch
-	 * is associated with the headphone pins.
-	 */
-	static const struct hda_pintbl pincfgs[] = {
-		{ 0x16, 0x2121102f }, /* dock headphone */
-		{ 0x19, 0x21a11010 }, /* dock mic */
-		{ }
-	};
-
-	alc_fixup_tpt440_apply_pincfgs(codec, fix, action, pincfgs);
+	if (action == HDA_FIXUP_ACT_PRE_PROBE) {
+		spec->parse_flags = HDA_PINCFG_NO_HP_FIXUP;
+		codec->power_save_node = 0; /* avoid click noises */
+		snd_hda_apply_pincfgs(codec, pincfgs);
+	}
 }
 
 static void alc_fixup_tpt470_dock(struct hda_codec *codec,
@@ -5724,7 +5695,6 @@ enum {
 	ALC269_FIXUP_LIFEBOOK,
 	ALC269_FIXUP_LIFEBOOK_EXTMIC,
 	ALC269_FIXUP_LIFEBOOK_HP_PIN,
-	ALC269_FIXUP_LIFEBOOK_HP_PIN_ORDER,
 	ALC269_FIXUP_LIFEBOOK_NO_HP_TO_LINEOUT,
 	ALC255_FIXUP_LIFEBOOK_U7x7_HEADSET_MIC,
 	ALC269_FIXUP_AMIC,
@@ -5780,7 +5750,6 @@ enum {
 	ALC255_FIXUP_HEADSET_MODE_NO_HP_MIC,
 	ALC293_FIXUP_DELL1_MIC_NO_PRESENCE,
 	ALC292_FIXUP_TPT440_DOCK,
-	ALC292_FIXUP_TPT440_DOCK_BUILTIN_FIRST,
 	ALC292_FIXUP_TPT440,
 	ALC283_FIXUP_HEADSET_MIC,
 	ALC255_FIXUP_DELL_WMI_MIC_MUTE_LED,
@@ -5952,27 +5921,7 @@ static const struct hda_fixup alc269_fixups[] = {
 	[ALC269_FIXUP_LIFEBOOK_HP_PIN] = {
 		.type = HDA_FIXUP_PINS,
 		.v.pins = (const struct hda_pintbl[]) {
-			/* Neverware:
-			 * Changed this from 0x0221102f to 0x0221100f to resolve
-			 * OVER-5447.
-			 *
-			 * The dock headphone pin is { 0x1a, 0x2121101f }.
-			 * For the buildin headphone to showup before the dock headphone
-			 * the sequence (last byte or 2 hex chars) must be lower;
-			 * upstreams fix of 0x0221102f doesn't work on this specific
-			 * machine, so 0x0221100f is used instead. This should keep all
-			 * of these machines working as intended.
-			 */
-			{ 0x21, 0x0221100f }, /* HP out */
-			{ }
-		},
-	},
-	[ALC269_FIXUP_LIFEBOOK_HP_PIN_ORDER] = {
-		.type = HDA_FIXUP_PINS,
-		/* Make sure the builtin HP is first. */
-		.v.pins = (const struct hda_pintbl[]) {
-			{ 0x21, 0x0221101f }, /* HP out */
-			{ 0x1a, 0x2221102f }, /* HP dock out */
+			{ 0x21, 0x0221102f }, /* HP out */
 			{ }
 		},
 	},
@@ -6381,12 +6330,6 @@ static const struct hda_fixup alc269_fixups[] = {
 	[ALC292_FIXUP_TPT440_DOCK] = {
 		.type = HDA_FIXUP_FUNC,
 		.v.func = alc_fixup_tpt440_dock,
-		.chained = true,
-		.chain_id = ALC269_FIXUP_LIMIT_INT_MIC_BOOST
-	},
-	[ALC292_FIXUP_TPT440_DOCK_BUILTIN_FIRST] = {
-		.type = HDA_FIXUP_FUNC,
-		.v.func = alc_fixup_tpt440_dock_builtin_first,
 		.chained = true,
 		.chain_id = ALC269_FIXUP_LIMIT_INT_MIC_BOOST
 	},
@@ -7141,8 +7084,8 @@ static const struct snd_pci_quirk alc269_fixup_tbl[] = {
 	SND_PCI_QUIRK(0x104d, 0x9099, "Sony VAIO S13", ALC275_FIXUP_SONY_DISABLE_AAMIX),
 	SND_PCI_QUIRK(0x10cf, 0x1475, "Lifebook", ALC269_FIXUP_LIFEBOOK),
 	SND_PCI_QUIRK(0x10cf, 0x159f, "Lifebook E780", ALC269_FIXUP_LIFEBOOK_NO_HP_TO_LINEOUT),
-	SND_PCI_QUIRK(0x10cf, 0x15dc, "Lifebook T731", ALC269_FIXUP_LIFEBOOK_HP_PIN_ORDER),
-	SND_PCI_QUIRK(0x10cf, 0x1757, "Lifebook T732/E752", ALC269_FIXUP_LIFEBOOK_HP_PIN),
+	SND_PCI_QUIRK(0x10cf, 0x15dc, "Lifebook T731", ALC269_FIXUP_LIFEBOOK_HP_PIN),
+	SND_PCI_QUIRK(0x10cf, 0x1757, "Lifebook E752", ALC269_FIXUP_LIFEBOOK_HP_PIN),
 	SND_PCI_QUIRK(0x10cf, 0x1629, "Lifebook U7x7", ALC255_FIXUP_LIFEBOOK_U7x7_HEADSET_MIC),
 	SND_PCI_QUIRK(0x10cf, 0x1845, "Lifebook U904", ALC269_FIXUP_LIFEBOOK_EXTMIC),
 	SND_PCI_QUIRK(0x10ec, 0x10f2, "Intel Reference board", ALC700_FIXUP_INTEL_REFERENCE),
@@ -7170,7 +7113,7 @@ static const struct snd_pci_quirk alc269_fixup_tbl[] = {
 	SND_PCI_QUIRK(0x17aa, 0x2203, "Thinkpad X230 Tablet", ALC269_FIXUP_LENOVO_DOCK),
 	SND_PCI_QUIRK(0x17aa, 0x2208, "Thinkpad T431s", ALC269_FIXUP_LENOVO_DOCK),
 	SND_PCI_QUIRK(0x17aa, 0x220c, "Thinkpad T440s", ALC292_FIXUP_TPT440),
-	SND_PCI_QUIRK(0x17aa, 0x220e, "Thinkpad T440p", ALC292_FIXUP_TPT440_DOCK_BUILTIN_FIRST),
+	SND_PCI_QUIRK(0x17aa, 0x220e, "Thinkpad T440p", ALC292_FIXUP_TPT440_DOCK),
 	SND_PCI_QUIRK(0x17aa, 0x2210, "Thinkpad T540p", ALC292_FIXUP_TPT440_DOCK),
 	SND_PCI_QUIRK(0x17aa, 0x2211, "Thinkpad W541", ALC292_FIXUP_TPT440_DOCK),
 	SND_PCI_QUIRK(0x17aa, 0x2212, "Thinkpad T440", ALC292_FIXUP_TPT440_DOCK),
@@ -7206,9 +7149,9 @@ static const struct snd_pci_quirk alc269_fixup_tbl[] = {
 	SND_PCI_QUIRK(0x17aa, 0x3978, "Lenovo B50-70", ALC269_FIXUP_DMIC_THINKPAD_ACPI),
 	SND_PCI_QUIRK(0x17aa, 0x5013, "Thinkpad", ALC269_FIXUP_LIMIT_INT_MIC_BOOST),
 	SND_PCI_QUIRK(0x17aa, 0x501a, "Thinkpad", ALC283_FIXUP_INT_MIC),
-	SND_PCI_QUIRK(0x17aa, 0x501e, "Thinkpad L440", ALC292_FIXUP_TPT440_DOCK_BUILTIN_FIRST),
+	SND_PCI_QUIRK(0x17aa, 0x501e, "Thinkpad L440", ALC292_FIXUP_TPT440_DOCK),
 	SND_PCI_QUIRK(0x17aa, 0x5026, "Thinkpad", ALC269_FIXUP_LIMIT_INT_MIC_BOOST),
-	SND_PCI_QUIRK(0x17aa, 0x5034, "Thinkpad T450", ALC292_FIXUP_TPT440_DOCK_BUILTIN_FIRST),
+	SND_PCI_QUIRK(0x17aa, 0x5034, "Thinkpad T450", ALC292_FIXUP_TPT440_DOCK),
 	SND_PCI_QUIRK(0x17aa, 0x5036, "Thinkpad T450s", ALC292_FIXUP_TPT440_DOCK),
 	SND_PCI_QUIRK(0x17aa, 0x503c, "Thinkpad L450", ALC292_FIXUP_TPT440_DOCK),
 	SND_PCI_QUIRK(0x17aa, 0x504a, "ThinkPad X260", ALC292_FIXUP_TPT440_DOCK),
