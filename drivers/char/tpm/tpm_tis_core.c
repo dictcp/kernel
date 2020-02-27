@@ -885,7 +885,8 @@ static int tpm_in_neverware_whitelist(const u32 did_vid, unsigned int flags)
 	/* We don't support TPM 2.0 devices at all. Some IDs are shared
 	 * between 1.2 and 2.0 devices. */
 	if (flags & TPM_CHIP_FLAG_TPM2) {
-	  return 0;
+      // TODO
+	  return 1;
 	}
 
 	/* Atmel TPM used in some Dell Latitudes */
