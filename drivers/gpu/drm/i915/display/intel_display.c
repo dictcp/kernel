@@ -15638,7 +15638,15 @@ static int intel_framebuffer_init(struct intel_framebuffer *intel_fb,
 		}
 	}
 
-	if (!drm_any_plane_has_format(&dev_priv->drm,
+	// Neverware [OVER-12025]
+	// Skip this error check if we're using the X tiled format. On kernels
+	// 4.19 and earlier this check passed but the code here has since been
+	// refactored and fails causing Intel machines to flicker.
+	//
+	// This should probably be investigated and fixed at the browser level
+	// in the future but for now this works and matches the 4.19 behavior.
+	if (mode_cmd->modifier[0] != I915_FORMAT_MOD_X_TILED &&
+	    !drm_any_plane_has_format(&dev_priv->drm,
 				      mode_cmd->pixel_format,
 				      mode_cmd->modifier[0])) {
 		struct drm_format_name_buf format_name;
