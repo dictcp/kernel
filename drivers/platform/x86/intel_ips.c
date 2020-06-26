@@ -1491,11 +1491,6 @@ static int ips_probe(struct pci_dev *dev, const struct pci_device_id *id)
 	if (trc & TRC_CORE2_EN)
 		ips->second_cpu = true;
 
-	update_turbo_limits(ips);
-	dev_dbg(&dev->dev, "max cpu power clamp: %dW\n",
-		ips->mcp_power_limit / 10);
-	dev_dbg(&dev->dev, "max core power clamp: %dW\n",
-		ips->core_power_limit / 10);
 	/* BIOS may update limits at runtime */
 	if (thm_readl(THM_PSC) & PSP_PBRT)
 		ips->poll_turbo_status = true;
@@ -1503,10 +1498,16 @@ static int ips_probe(struct pci_dev *dev, const struct pci_device_id *id)
 	if (!ips_get_i915_syms(ips)) {
 		dev_info(&dev->dev, "failed to get i915 symbols, graphics turbo disabled until i915 loads\n");
 		ips->gpu_turbo_enabled = false;
-	} else {
-		dev_dbg(&dev->dev, "graphics turbo enabled\n");
-		ips->gpu_turbo_enabled = true;
 	}
+
+	update_turbo_limits(ips);
+	dev_dbg(&dev->dev, "max cpu power clamp: %dW\n",
+		ips->mcp_power_limit / 10);
+	dev_dbg(&dev->dev, "max core power clamp: %dW\n",
+		ips->core_power_limit / 10);
+
+	if (ips->gpu_turbo_enabled)
+		dev_dbg(&dev->dev, "graphics turbo enabled\n");
 
 	/*
 	 * Check PLATFORM_INFO MSR to make sure this chip is
