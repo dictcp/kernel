@@ -221,6 +221,21 @@
 		#sound-dai-cells = <0>;
 	};
 
+	panel: panel {
+		/* Compatible will be filled in per-board */
+		power-supply = <&pp3300_dx_edp>;
+		backlight = <&backlight>;
+		hpd-gpios = <&sn65dsi86_bridge 2 GPIO_ACTIVE_HIGH>;
+
+		ports {
+			port {
+				panel_in_edp: endpoint {
+					remote-endpoint = <&sn65dsi86_out>;
+				};
+			};
+		};
+	};
+
 	pwmleds {
 		compatible = "pwm-leds";
 		keyboard_backlight: keyboard-backlight {
@@ -231,7 +246,7 @@
 		};
 	};
 
-	sound {
+	sound: sound  {
 		compatible = "qcom,sc7180-sndcard-rt5682-m98357-1mic";
 		model = "sc7180-snd-card";
 
@@ -265,6 +280,11 @@
 				sound-dai = <&max98357a>;
 			};
 		};
+	};
+
+	usb_hub: usb-hub {
+		compatible = "realtek,rts5411", "onboard-usb-hub";
+		vdd-supply = <&pp3300_hub>;
 	};
 };
 
@@ -520,8 +540,6 @@
 			regulator-min-microvolt = <3304000>;
 			regulator-max-microvolt = <3304000>;
 			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
-			regulator-always-on;
-			regulator-boot-on;
 		};
 
 		pp1800_brij_vccio:
@@ -897,6 +915,22 @@ ap_spi_fp: &spi10 {
 
 &usb_1_dwc3 {
 	dr_mode = "host";
+	#address-cells = <1>;
+	#size-cells = <0>;
+
+	/* 2.0 hub on port 1 */
+	hub@1 {
+		compatible = "usbbda,5411";
+		reg = <1>;
+		hub = <&usb_hub>;
+	};
+
+	/* 3.0 hub on port 2 */
+	hub@2 {
+		compatible = "usbbda,411";
+		reg = <2>;
+		hub = <&usb_hub>;
+	};
 };
 
 &usb_1_hsphy {

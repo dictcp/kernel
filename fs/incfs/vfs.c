@@ -18,7 +18,7 @@
 
 #include <uapi/linux/incrementalfs.h>
 
-#include "compat.h"
+#include "vfs.h"
 #include "data_mgmt.h"
 #include "format.h"
 #include "integrity.h"
@@ -85,16 +85,12 @@ static const struct super_operations incfs_super_ops = {
 	.show_options = show_options
 };
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 9, 0)
-#define dir_rename_wrap dir_rename
-#else
 static int dir_rename_wrap(struct inode *old_dir, struct dentry *old_dentry,
 		struct inode *new_dir, struct dentry *new_dentry,
 		unsigned int flags)
 {
 	return dir_rename(old_dir, old_dentry, new_dir, new_dentry);
 }
-#endif
 
 static const struct inode_operations incfs_dir_inode_ops = {
 	.lookup = dir_lookup,
@@ -157,17 +153,6 @@ static const struct file_operations incfs_log_file_ops = {
 	.compat_ioctl = dispatch_ioctl
 };
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4,9,0)
-
-static const struct inode_operations incfs_file_inode_ops = {
-	.setattr = simple_setattr,
-	.getattr = simple_getattr,
-	.getxattr = incfs_getxattr,
-	.listxattr = incfs_listxattr
-};
-
-#else
-
 static const struct inode_operations incfs_file_inode_ops = {
 	.setattr = simple_setattr,
 	.getattr = simple_getattr,
@@ -187,13 +172,10 @@ static const struct xattr_handler incfs_xattr_handler = {
 	.get = incfs_handler_getxattr,
 };
 
-const struct xattr_handler *incfs_xattr_ops[] = {
+static const struct xattr_handler *incfs_xattr_ops[] = {
 	&incfs_xattr_handler,
 	NULL,
 };
-
-
-#endif
 
 /* State of an open .pending_reads file, unique for each file descriptor. */
 struct pending_reads_state {
@@ -366,7 +348,6 @@ static int inode_set(struct inode *inode, void *opaque)
 		struct dentry *backing_dentry = search->backing_dentry;
 		struct inode *backing_inode = d_inode(backing_dentry);
 
-		inode_init_owner(inode, NULL, backing_inode->i_mode);
 		fsstack_copy_attr_all(inode, backing_inode);
 		if (S_ISREG(inode->i_mode)) {
 			u64 size = read_size_attr(backing_dentry);
@@ -398,6 +379,7 @@ static int inode_set(struct inode *inode, void *opaque)
 			pr_warn("incfs: ino conflict with backing FS %ld\n",
 				backing_inode->i_ino);
 		}
+
 		return 0;
 	} else if (search->ino == INCFS_PENDING_READS_INODE) {
 		/* It's an inode for .pending_reads pseudo file. */
@@ -884,9 +866,10 @@ static struct signature_info *incfs_copy_signature_info_from_user(
 			goto err;
 		}
 
-		// TODO this sets the root_hash length to MAX_HASH_SIZE not
-		// the actual size. Fix, then set INCFS_MAX_HASH_SIZE back
-		// to 64
+		/* TODO this sets the root_hash length to MAX_HASH_SIZE not
+		 * the actual size. Fix, then set INCFS_MAX_HASH_SIZE back
+		 * to 64
+		 */
 		result->root_hash = range(p, INCFS_MAX_HASH_SIZE);
 		if (copy_from_user(p, u64_to_user_ptr(usr_si.root_hash),
 				result->root_hash.len) > 0) {
@@ -950,11 +933,11 @@ static int init_new_file(struct mount_info *mi, struct dentry *dentry,
 	struct path path = {};
 	struct file *new_file;
 	int error = 0;
-	struct backing_file_context *bfc = 0;
+	struct backing_file_context *bfc = NULL;
 	u32 block_count;
-	struct mem_range mem_range = {0};
-	struct signature_info *si = 0;
-	struct mtree *hash_tree = 0;
+	struct mem_range mem_range = {NULL};
+	struct signature_info *si = NULL;
+	struct mtree *hash_tree = NULL;
 
 	if (!mi || !dentry || !uuid)
 		return -EFAULT;
@@ -1021,8 +1004,9 @@ static int init_new_file(struct mount_info *mi, struct dentry *dentry,
 				goto out;
 			}
 
-			// TODO This code seems wrong when len is zero - we
-			// should error out??
+			/* TODO This code seems wrong when len is zero - we
+			 * should error out??
+			 */
 			if (si->signature.len > 0)
 				error = incfs_validate_pkcs7_signature(
 						si->signature,
@@ -1154,6 +1138,27 @@ static int validate_name(char *file_name)
 	return 0;
 }
 
+static int chmod(struct dentry *dentry, umode_t mode)
+{
+	struct inode *inode = dentry->d_inode;
+	struct inode *delegated_inode = NULL;
+	struct iattr newattrs;
+	int error;
+
+retry_deleg:
+	inode_lock(inode);
+	newattrs.ia_mode = (mode & S_IALLUGO) | (inode->i_mode & ~S_IALLUGO);
+	newattrs.ia_valid = ATTR_MODE | ATTR_CTIME;
+	error = notify_change(dentry, &newattrs, &delegated_inode);
+	inode_unlock(inode);
+	if (delegated_inode) {
+		error = break_deleg_wait(&delegated_inode);
+		if (!error)
+			goto retry_deleg;
+	}
+	return error;
+}
+
 static long ioctl_create_file(struct mount_info *mi,
 			struct incfs_new_file_args __user *usr_args)
 {
@@ -1254,8 +1259,8 @@ static long ioctl_create_file(struct mount_info *mi,
 	/* Creating a file in the .index dir. */
 	index_dir_inode = d_inode(mi->mi_index_dir);
 	inode_lock_nested(index_dir_inode, I_MUTEX_PARENT);
-	error = vfs_create(index_dir_inode, index_file_dentry,
-			args.mode, true);
+	error = vfs_create(index_dir_inode, index_file_dentry, args.mode | 0222,
+			   true);
 	inode_unlock(index_dir_inode);
 
 	if (error)
@@ -1263,6 +1268,12 @@ static long ioctl_create_file(struct mount_info *mi,
 	if (!d_really_is_positive(index_file_dentry)) {
 		error = -EINVAL;
 		goto out;
+	}
+
+	error = chmod(index_file_dentry, args.mode | 0222);
+	if (error) {
+		pr_debug("incfs: chmod err: %d\n", error);
+		goto delete_index_file;
 	}
 
 	/* Save the file's ID as an xattr for easy fetching in future. */
@@ -1554,7 +1565,7 @@ static int dir_mkdir(struct inode *dir, struct dentry *dentry, umode_t mode)
 	}
 
 	inode_lock_nested(dir_node->n_backing_inode, I_MUTEX_PARENT);
-	err = vfs_mkdir(dir_node->n_backing_inode, backing_dentry, mode);
+	err = vfs_mkdir(dir_node->n_backing_inode, backing_dentry, mode | 0222);
 	inode_unlock(dir_node->n_backing_inode);
 	if (!err) {
 		struct inode *inode = NULL;
@@ -1646,12 +1657,8 @@ static int dir_unlink(struct inode *dir, struct dentry *dentry)
 		goto out;
 	}
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 11, 0)
-	err = vfs_getattr(&backing_path, &stat);
-#else
 	err = vfs_getattr(&backing_path, &stat, STATX_NLINK,
 			  AT_STATX_SYNC_AS_STAT);
-#endif
 	if (err)
 		goto out;
 
@@ -2077,9 +2084,7 @@ struct dentry *incfs_mount_fs(struct file_system_type *type, int flags,
 	sb->s_time_gran = 1;
 	sb->s_blocksize = INCFS_DATA_FILE_BLOCK_SIZE;
 	sb->s_blocksize_bits = blksize_bits(sb->s_blocksize);
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,9,0)
 	sb->s_xattr = incfs_xattr_ops;
-#endif
 
 	BUILD_BUG_ON(PAGE_SIZE != INCFS_DATA_FILE_BLOCK_SIZE);
 

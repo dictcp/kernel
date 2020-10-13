@@ -12,7 +12,6 @@
 #include <linux/crc32.h>
 #include <linux/kernel.h>
 
-#include "compat.h"
 #include "format.h"
 
 struct backing_file_context *incfs_alloc_bfc(struct file *backing_file)
@@ -179,7 +178,7 @@ static int append_md_to_backing_file(struct backing_file_context *bfc,
 
 	record_size = le16_to_cpu(record->h_record_size);
 	file_pos = incfs_get_end_offset(bfc->bc_file);
-	record->h_prev_md_offset = bfc->bc_last_md_record_offset;
+	record->h_prev_md_offset = cpu_to_le64(bfc->bc_last_md_record_offset);
 	record->h_next_md_offset = 0;
 	record->h_record_crc = cpu_to_le32(calc_md_crc(record));
 
@@ -282,7 +281,7 @@ int incfs_write_file_attr_to_backing_file(struct backing_file_context *bfc,
 	file_attr.fa_header.h_next_md_offset = cpu_to_le64(0);
 	file_attr.fa_size = cpu_to_le16((u16)value.len);
 	file_attr.fa_offset = cpu_to_le64(value_offset);
-	file_attr.fa_crc = cpu_to_le64(crc);
+	file_attr.fa_crc = cpu_to_le32(crc);
 
 	result = write_to_bf(bfc, value.data, value.len, value_offset, true);
 	if (result)
@@ -679,18 +678,10 @@ int incfs_read_next_metadata_record(struct backing_file_context *bfc,
 
 ssize_t incfs_kread(struct file *f, void *buf, size_t size, loff_t pos)
 {
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 14, 0)
-	return kernel_read(f, pos, (char *)buf, size);
-#else
 	return kernel_read(f, buf, size, &pos);
-#endif
 }
 
 ssize_t incfs_kwrite(struct file *f, const void *buf, size_t size, loff_t pos)
 {
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 14, 0)
-	return kernel_write(f, buf, size, pos);
-#else
 	return kernel_write(f, buf, size, &pos);
-#endif
 }

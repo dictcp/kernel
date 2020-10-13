@@ -12,23 +12,6 @@ ap_h1_spi: &spi0 {};
 
 #include "sc7180-trogdor.dtsi"
 
-/ {
-	panel: panel {
-		compatible = "kingdisplay,kd116n21-30nv-a010";
-		power-supply = <&pp3300_dx_edp>;
-		backlight = <&backlight>;
-		hpd-gpios = <&sn65dsi86_bridge 2 GPIO_ACTIVE_HIGH>;
-
-		ports {
-			port {
-				panel_in_edp: endpoint {
-					remote-endpoint = <&sn65dsi86_out>;
-				};
-			};
-		};
-	};
-};
-
 &ap_sar_sensor {
 	compatible = "semtech,sx9311";
 	status = "okay";
@@ -58,8 +41,19 @@ ap_ts_pen_1v8: &i2c4 {
 	status = "okay";
 };
 
+&panel {
+	compatible = "kingdisplay,kd116n21-30nv-a010";
+};
+
 &sdhc_2 {
 	status = "okay";
+};
+
+&sound {
+	compatible = "qcom,sc7180-sndcard-rt5682-m98357-2mic";
+	pinctrl-names = "default";
+	pinctrl-0 = <&dmic_sel>;
+	dmic-gpios = <&tlmm 86 GPIO_ACTIVE_HIGH>;
 };
 
 &usb_c1 {
@@ -158,8 +152,8 @@ ap_ts_pen_1v8: &i2c4 {
 			  "",
 			  "EN_PP3300_CODEC",
 			  "EN_PP3300_HUB",
-			  "DMIC_SEL",
 			  "",
+			  "DMIC_SEL",
 			  "",
 			  "",
 			  "",
@@ -192,4 +186,16 @@ ap_ts_pen_1v8: &i2c4 {
 			  "AP_TS_PEN_I2C_SCL",
 			  "DP_HOT_PLUG_DET",
 			  "EC_IN_RW_ODL";
+
+	dmic_sel: dmic-sel {
+		pinmux {
+			pins = "gpio86";
+			function = "gpio";
+		};
+
+		pinconf {
+			pins = "gpio86";
+			bias-pull-down;
+		};
+	};
 };
