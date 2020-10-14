@@ -873,6 +873,21 @@ module_param(tpm_bypass_whitelist, bool, S_IRUGO);
 MODULE_PARM_DESC(tpm_bypass_whitelist,
 		 "Neverware: set to true to allow non-whitelisted TPM chips");
 
+/* DMI information for machines to be whitelisted for TPM2 support */
+static const struct dmi_system_id
+tpm2_models_whitelist[] = {
+	{
+		/* OVER-13140 */
+		.ident = "Dell Latitude 7490",
+		.matches = {
+			DMI_MATCH(DMI_SYS_VENDOR, "Dell Inc."),
+			DMI_MATCH(DMI_PRODUCT_NAME, "Latitude 7490"),
+		}
+	},
+	{ }
+};
+
+
 /* Return non-zero if the chip is in our whitelist, zero otherwise
  *
  * did_vid: TPM vendor and device ID field. The two low bytes are
@@ -884,6 +899,12 @@ static int tpm_in_neverware_whitelist(const u32 did_vid, unsigned int flags)
 {
 	const u16 vendor_id = did_vid;  /* truncate */
 	const u16 device_id = did_vid >> 16;
+
+	/* Check for machines explicitly whitelisted for TPM 2.0 support */
+	if (dmi_check_system(tpm2_models_whitelist)) {
+		if (vendor_id == TPM_VID_WINBOND && device_id == 0xFC)
+			return 1;
+	}
 
 	/* We don't support TPM 2.0 devices at all. Some IDs are shared
 	 * between 1.2 and 2.0 devices. */
