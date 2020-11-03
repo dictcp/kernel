@@ -714,6 +714,10 @@ i915_vma_insert(struct i915_vma *vma, u64 size, u64 alignment, u64 flags)
 	if (vma->obj) {
 		struct drm_i915_gem_object *obj = vma->obj;
 
+		// Neverware: part of a revert for [OVER-13168]. Can probably
+		// be dropped when upgrading past 5.4.
+		atomic_inc(&obj->mm.pages_pin_count);
+
 		atomic_inc(&obj->bind_count);
 		assert_bind_count(obj);
 	}
@@ -737,8 +741,10 @@ i915_vma_detach(struct i915_vma *vma)
 	if (vma->obj) {
 		struct drm_i915_gem_object *obj = vma->obj;
 
+		// Neverware: part of a revert for [OVER-13168]. Can probably
+		// be dropped when upgrading past 5.4.
+		i915_gem_object_unpin_pages(obj);
 		assert_bind_count(obj);
-		atomic_dec(&obj->bind_count);
 	}
 }
 
