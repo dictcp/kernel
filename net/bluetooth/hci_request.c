@@ -29,6 +29,7 @@
 
 #include "smp.h"
 #include "hci_request.h"
+#include "msft.h"
 
 #define HCI_REQ_DONE	  0
 #define HCI_REQ_PEND	  1
@@ -380,53 +381,54 @@ void __hci_req_write_fast_connectable(struct hci_request *req, bool enable)
 
 static void start_interleave_scan(struct hci_dev *hdev)
 {
-	hdev->adv_monitor_scan_state = ADV_MONITOR_SCAN_NO_FILTER;
+	hdev->interleave_scan_state = INTERLEAVE_SCAN_NO_FILTER;
 	queue_delayed_work(hdev->req_workqueue,
-			   &hdev->interleave_adv_monitor_scan, 0);
+			   &hdev->interleave_scan, 0);
 }
 
 static bool is_interleave_scanning(struct hci_dev *hdev)
 {
-	return hdev->adv_monitor_scan_state != ADV_MONITOR_SCAN_NONE;
+	return hdev->interleave_scan_state != INTERLEAVE_SCAN_NONE;
 }
 
 static void cancel_interleave_scan(struct hci_dev *hdev)
 {
-	bt_dev_dbg(hdev, "%s cancelling interleave scan", hdev->name);
+	bt_dev_dbg(hdev, "cancelling interleave scan");
 
-	cancel_delayed_work_sync(&hdev->interleave_adv_monitor_scan);
+	cancel_delayed_work_sync(&hdev->interleave_scan);
 
-	hdev->adv_monitor_scan_state = ADV_MONITOR_SCAN_NONE;
+	hdev->interleave_scan_state = INTERLEAVE_SCAN_NONE;
 }
 
-/* Return true if interleave_scan is running after exiting this function,
+/* Return true if interleave_scan wasn't started until exiting this function,
  * otherwise, return false
  */
-static bool update_adv_monitor_scan_state(struct hci_dev *hdev)
+static bool __hci_update_interleaved_scan(struct hci_dev *hdev)
 {
-	if (!hci_is_adv_monitoring(hdev) ||
-	    (list_empty(&hdev->pend_le_conns) &&
-	     list_empty(&hdev->pend_le_reports))) {
-		if (is_interleave_scanning(hdev)) {
-			/* If the interleave condition no longer holds, cancel
-			 * the existed interleave scan.
-			 */
-			cancel_interleave_scan(hdev);
-		}
-		return false;
-	}
+	/* Do interleaved scan only if all of the following are true:
+	 * - There is at least one ADV monitor
+	 * - At least one pending LE connection or one device to be scanned for
+	 * - Monitor offloading is not supported
+	 * If so, we should alternate between allowlist scan and one without
+	 * any filters to save power.
+	 */
+	bool use_interleaving = hci_is_adv_monitoring(hdev) &&
+				!(list_empty(&hdev->pend_le_conns) &&
+				  list_empty(&hdev->pend_le_reports)) &&
+				hci_get_adv_monitor_offload_ext(hdev) ==
+				    HCI_ADV_MONITOR_EXT_NONE;
+	bool is_interleaving = is_interleave_scanning(hdev);
 
-	if (!is_interleave_scanning(hdev)) {
-		/* If there is at least one ADV monitors and one pending LE
-		 * connection or one device to be scanned for, we should
-		 * alternate between allowlist scan and one without any filters
-		 * to save power.
-		 */
+	if (use_interleaving && !is_interleaving) {
 		start_interleave_scan(hdev);
-		bt_dev_dbg(hdev, "%s starting interleave scan", hdev->name);
+		bt_dev_dbg(hdev, "starting interleave scan");
+		return true;
 	}
 
-	return true;
+	if (!use_interleaving && is_interleaving)
+		cancel_interleave_scan(hdev);
+
+	return false;
 }
 
 /* This function controls the background scanning based on hdev->pend_le_conns
@@ -500,12 +502,8 @@ static void __hci_update_background_scan(struct hci_request *req)
 		if (hci_dev_test_flag(hdev, HCI_LE_SCAN))
 			hci_req_add_le_scan_disable(req);
 
-		if (!hdev->enable_advmon_interleave_scan ||
-		    !update_adv_monitor_scan_state(hdev)) {
-			hci_req_add_le_passive_scan(req);
-			bt_dev_dbg(hdev, "%s starting background scanning",
-				   hdev->name);
-		}
+		hci_req_add_le_passive_scan(req);
+		bt_dev_dbg(hdev, "starting background scanning");
 	}
 }
 
@@ -870,15 +868,12 @@ static u8 update_white_list(struct hci_request *req)
 
 	/* Use the allowlist unless the following conditions are all true:
 	 * - We are not currently suspending
-	 * - There are 1 or more ADV monitors registered
+	 * - There are 1 or more ADV monitors registered and it's not offloaded
 	 * - Interleaved scanning is not currently using the allowlist
-	 *
-	 * Once the controller offloading of advertisement monitor is in place,
-	 * the above condition should include the support of MSFT extension
-	 * support.
 	 */
 	if (!idr_is_empty(&hdev->adv_monitors_idr) && !hdev->suspended &&
-	    hdev->adv_monitor_scan_state != ADV_MONITOR_SCAN_ALLOWLIST)
+	    hci_get_adv_monitor_offload_ext(hdev) == HCI_ADV_MONITOR_EXT_NONE &&
+	    hdev->interleave_scan_state != INTERLEAVE_SCAN_ALLOWLIST)
 		return 0x00;
 
 	/* Select filter policy to use white list */
@@ -1016,7 +1011,11 @@ void hci_req_add_le_passive_scan(struct hci_request *req)
 				      &own_addr_type))
 		return;
 
-	bt_dev_dbg(hdev, "interleave state %d", hdev->adv_monitor_scan_state);
+	if (hdev->enable_advmon_interleave_scan &&
+	    __hci_update_interleaved_scan(hdev))
+		return;
+
+	bt_dev_dbg(hdev, "interleave state %d", hdev->interleave_scan_state);
 	/* Adding or removing entries from the white list must
 	 * happen before enabling scanning. The controller does
 	 * not allow white list modification while scanning.
@@ -1037,11 +1036,10 @@ void hci_req_add_le_passive_scan(struct hci_request *req)
 		filter_policy |= 0x02;
 
 	if (hdev->suspended) {
-		/* Block suspend notifier on response */
-		set_bit(SUSPEND_SCAN_ENABLE, hdev->suspend_tasks);
-
 		window = hdev->le_scan_window_suspend;
 		interval = hdev->le_scan_int_suspend;
+
+		set_bit(SUSPEND_SCAN_ENABLE, hdev->suspend_tasks);
 	} else if (hci_is_le_conn_scanning(hdev)) {
 		window = hdev->le_scan_window_connect;
 		interval = hdev->le_scan_int_connect;
@@ -1192,6 +1190,29 @@ static void suspend_req_complete(struct hci_dev *hdev, u8 status, u16 opcode)
 		clear_bit(SUSPEND_SCAN_DISABLE, hdev->suspend_tasks);
 		wake_up(&hdev->suspend_wait_q);
 	}
+
+	if (test_bit(SUSPEND_SET_ADV_FILTER, hdev->suspend_tasks)) {
+		clear_bit(SUSPEND_SET_ADV_FILTER, hdev->suspend_tasks);
+		wake_up(&hdev->suspend_wait_q);
+	}
+}
+
+static void hci_req_add_set_adv_filter_enable(struct hci_request *req,
+					      bool enable)
+{
+	struct hci_dev *hdev = req->hdev;
+
+	switch (hci_get_adv_monitor_offload_ext(hdev)) {
+	case HCI_ADV_MONITOR_EXT_MSFT:
+		msft_req_add_set_filter_enable(req, enable);
+		break;
+	default:
+		return;
+	}
+
+	/* No need to block when enabling since it's on resume path */
+	if (hdev->suspended && !enable)
+		set_bit(SUSPEND_SET_ADV_FILTER, hdev->suspend_tasks);
 }
 
 /* Call with hci_dev_lock */
@@ -1252,6 +1273,9 @@ void hci_req_prepare_suspend(struct hci_dev *hdev, enum suspended_state next)
 			hci_req_add_le_scan_disable(&req);
 		}
 
+		/* Disable advertisement filters */
+		hci_req_add_set_adv_filter_enable(&req, false);
+
 		/* Mark task needing completion */
 		set_bit(SUSPEND_SCAN_DISABLE, hdev->suspend_tasks);
 
@@ -1291,6 +1315,8 @@ void hci_req_prepare_suspend(struct hci_dev *hdev, enum suspended_state next)
 		hci_req_clear_event_filter(&req);
 		/* Reset passive/background scanning to normal */
 		__hci_update_background_scan(&req);
+		/* Enable all of the advertisement filters */
+		hci_req_add_set_adv_filter_enable(&req, true);
 
 		/* Unpause directed advertising */
 		hdev->advertising_paused = false;
@@ -1356,6 +1382,53 @@ void __hci_req_disable_advertising(struct hci_request *req)
 
 		hci_req_add(req, HCI_OP_LE_SET_ADV_ENABLE, sizeof(enable), &enable);
 	}
+}
+
+static bool has_pending_adv(struct hci_dev *hdev)
+{
+	struct adv_info *adv_instance;
+
+	list_for_each_entry(adv_instance, &hdev->adv_instances, list) {
+		if (adv_instance->pending)
+			return true;
+	}
+
+	return false;
+}
+
+static void __hci_req_enable_paused_adv(struct hci_request *req)
+{
+	struct hci_dev *hdev = req->hdev;
+	struct adv_info *adv;
+	u8 enable = 0x01;
+
+	/* Determine if any of our advertising instances are in the middle of
+	 * registration. This is important, because we do not want to enable
+	 * advertising if an enable will be provided at the end of registration.
+	 * Such a double call may result in an HCI error on some platforms.
+	 */
+
+	if (ext_adv_capable(hdev)) {
+		/* Call for each tracked instance to be re-enabled */
+		list_for_each_entry(adv, &hdev->adv_instances, list) {
+			if (!adv->pending)
+				__hci_req_enable_ext_advertising(req,
+								 adv->instance);
+		}
+	} else if (!has_pending_adv(hdev)) {
+		hci_req_add(req, HCI_OP_LE_SET_ADV_ENABLE,
+			    sizeof(enable), &enable);
+	}
+}
+
+int hci_req_enable_paused_adv(struct hci_dev *hdev)
+{
+	struct hci_request req;
+
+	hci_req_init(&req, hdev);
+	__hci_req_enable_paused_adv(&req);
+
+	return hci_req_run(&req, NULL);
 }
 
 static u32 get_adv_instance_flags(struct hci_dev *hdev, u8 instance)
@@ -1499,23 +1572,16 @@ void __hci_req_enable_advertising(struct hci_request *req)
 		adv_max_interval = hdev->le_adv_max_interval;
 	}
 
-	if (connectable) {
-		cp.type = LE_ADV_IND;
-	} else {
-		if (get_cur_adv_instance_scan_rsp_len(hdev))
-			cp.type = LE_ADV_SCAN_IND;
-		else
-			cp.type = LE_ADV_NONCONN_IND;
-
-		if (!hci_dev_test_flag(hdev, HCI_DISCOVERABLE) ||
-		    hci_dev_test_flag(hdev, HCI_LIMITED_DISCOVERABLE)) {
-			adv_min_interval = DISCOV_LE_FAST_ADV_INT_MIN;
-			adv_max_interval = DISCOV_LE_FAST_ADV_INT_MAX;
-		}
-	}
-
 	cp.min_interval = cpu_to_le16(adv_min_interval);
 	cp.max_interval = cpu_to_le16(adv_max_interval);
+
+	if (connectable)
+		cp.type = LE_ADV_IND;
+	else if (get_cur_adv_instance_scan_rsp_len(hdev))
+		cp.type = LE_ADV_SCAN_IND;
+	else
+		cp.type = LE_ADV_NONCONN_IND;
+
 	cp.own_address_type = own_addr_type;
 	cp.channel_map = hdev->le_adv_channel_map;
 
@@ -1876,64 +1942,6 @@ unlock:
 	hci_dev_unlock(hdev);
 }
 
-static int add_le_interleave_adv_monitor_scan(struct hci_request *req,
-					      unsigned long opt)
-{
-	struct hci_dev *hdev = req->hdev;
-	int ret = 0;
-
-	hci_dev_lock(hdev);
-
-	if (hci_dev_test_flag(hdev, HCI_LE_SCAN))
-		hci_req_add_le_scan_disable(req);
-	hci_req_add_le_passive_scan(req);
-
-	switch (hdev->adv_monitor_scan_state) {
-	case ADV_MONITOR_SCAN_ALLOWLIST:
-		bt_dev_dbg(hdev, "next state: allowlist");
-		hdev->adv_monitor_scan_state = ADV_MONITOR_SCAN_NO_FILTER;
-		break;
-	case ADV_MONITOR_SCAN_NO_FILTER:
-		bt_dev_dbg(hdev, "next state: no filter");
-		hdev->adv_monitor_scan_state = ADV_MONITOR_SCAN_ALLOWLIST;
-		break;
-	case ADV_MONITOR_SCAN_NONE:
-	default:
-		BT_ERR("unexpected error");
-		ret = -1;
-	}
-
-	hci_dev_unlock(hdev);
-
-	return ret;
-}
-
-static void interleave_adv_monitor_scan_work(struct work_struct *work)
-{
-	struct hci_dev *hdev = container_of(work, struct hci_dev,
-					    interleave_adv_monitor_scan.work);
-	u8 status;
-	unsigned long timeout;
-
-	if (hdev->adv_monitor_scan_state == ADV_MONITOR_SCAN_ALLOWLIST) {
-		timeout = msecs_to_jiffies(hdev->advmon_allowlist_duration);
-	} else if (hdev->adv_monitor_scan_state == ADV_MONITOR_SCAN_NO_FILTER) {
-		timeout = msecs_to_jiffies(hdev->advmon_no_filter_duration);
-	} else {
-		bt_dev_err(hdev, "unexpected error");
-		return;
-	}
-
-	hci_req_sync(hdev, add_le_interleave_adv_monitor_scan, 0,
-		     HCI_CMD_TIMEOUT, &status);
-
-	/* Don't continue interleaving if it was canceled */
-	if (is_interleave_scanning(hdev)) {
-		queue_delayed_work(hdev->req_workqueue,
-				   &hdev->interleave_adv_monitor_scan, timeout);
-	}
-}
-
 int hci_get_random_address(struct hci_dev *hdev, bool require_privacy,
 			   bool use_rpa, struct adv_info *adv_instance,
 			   u8 *own_addr_type, bdaddr_t *rand_addr)
@@ -2042,11 +2050,7 @@ int __hci_req_setup_ext_adv_instance(struct hci_request *req, u8 instance)
 
 	flags = get_adv_instance_flags(hdev, instance);
 
-	/* If the "connectable" instance flag was not set, then choose between
-	 * ADV_IND and ADV_NONCONN_IND based on the global connectable setting.
-	 */
-	connectable = (flags & MGMT_ADV_FLAG_CONNECTABLE) ||
-		      mgmt_get_connectable(hdev);
+	connectable = (flags & MGMT_ADV_FLAG_CONNECTABLE);
 
 	if (!is_advertising_allowed(hdev, connectable))
 		return -EPERM;
@@ -2080,16 +2084,11 @@ int __hci_req_setup_ext_adv_instance(struct hci_request *req, u8 instance)
 			cp.evt_properties = cpu_to_le16(LE_EXT_ADV_CONN_IND);
 		else
 			cp.evt_properties = cpu_to_le16(LE_LEGACY_ADV_IND);
-	} else if (get_adv_instance_scan_rsp_len(hdev, instance)) {
+	} else {
 		if (secondary_adv)
 			cp.evt_properties = cpu_to_le16(LE_EXT_ADV_SCAN_IND);
 		else
 			cp.evt_properties = cpu_to_le16(LE_LEGACY_ADV_SCAN_IND);
-	} else {
-		if (secondary_adv)
-			cp.evt_properties = cpu_to_le16(LE_EXT_ADV_NON_CONN_IND);
-		else
-			cp.evt_properties = cpu_to_le16(LE_LEGACY_NONCONN_IND);
 	}
 
 	cp.own_addr_type = own_addr_type;
@@ -2245,6 +2244,62 @@ int __hci_req_start_ext_adv(struct hci_request *req, u8 instance)
 	return 0;
 }
 
+static int hci_req_add_le_interleaved_scan(struct hci_request *req,
+					   unsigned long opt)
+{
+	struct hci_dev *hdev = req->hdev;
+	int ret = 0;
+
+	hci_dev_lock(hdev);
+
+	if (hci_dev_test_flag(hdev, HCI_LE_SCAN))
+		hci_req_add_le_scan_disable(req);
+	hci_req_add_le_passive_scan(req);
+
+	switch (hdev->interleave_scan_state) {
+	case INTERLEAVE_SCAN_ALLOWLIST:
+		bt_dev_dbg(hdev, "next state: allowlist");
+		hdev->interleave_scan_state = INTERLEAVE_SCAN_NO_FILTER;
+		break;
+	case INTERLEAVE_SCAN_NO_FILTER:
+		bt_dev_dbg(hdev, "next state: no filter");
+		hdev->interleave_scan_state = INTERLEAVE_SCAN_ALLOWLIST;
+		break;
+	case INTERLEAVE_SCAN_NONE:
+		BT_ERR("unexpected error");
+		ret = -1;
+	}
+
+	hci_dev_unlock(hdev);
+
+	return ret;
+}
+
+static void interleave_scan_work(struct work_struct *work)
+{
+	struct hci_dev *hdev = container_of(work, struct hci_dev,
+					    interleave_scan.work);
+	u8 status;
+	unsigned long timeout;
+
+	if (hdev->interleave_scan_state == INTERLEAVE_SCAN_ALLOWLIST) {
+		timeout = msecs_to_jiffies(hdev->advmon_allowlist_duration);
+	} else if (hdev->interleave_scan_state == INTERLEAVE_SCAN_NO_FILTER) {
+		timeout = msecs_to_jiffies(hdev->advmon_no_filter_duration);
+	} else {
+		bt_dev_err(hdev, "unexpected error");
+		return;
+	}
+
+	hci_req_sync(hdev, hci_req_add_le_interleaved_scan, 0,
+		     HCI_CMD_TIMEOUT, &status);
+
+	/* Don't continue interleaving if it was canceled */
+	if (is_interleave_scanning(hdev))
+		queue_delayed_work(hdev->req_workqueue,
+				   &hdev->interleave_scan, timeout);
+}
+
 int __hci_req_schedule_adv_instance(struct hci_request *req, u8 instance,
 				    bool force)
 {
@@ -2381,25 +2436,39 @@ void hci_req_clear_adv_instance(struct hci_dev *hdev, struct sock *sk,
 static void set_random_addr(struct hci_request *req, bdaddr_t *rpa)
 {
 	struct hci_dev *hdev = req->hdev;
+	bool adv_enabled = hci_dev_test_flag(hdev, HCI_LE_ADV);
 
-	/* If we're advertising or initiating an LE connection we can't
-	 * go ahead and change the random address at this time. This is
-	 * because the eventual initiator address used for the
-	 * subsequently created connection will be undefined (some
-	 * controllers use the new address and others the one we had
-	 * when the operation started).
+	/* If we're initiating an LE connection or actively scanning, we can't
+	 * go ahead and change the random address at this time. This is because
+	 * the eventual initiator address used for the subsequently created
+	 * connection will be undefined (some controllers use the new address
+	 * and others the one we had when the operation started).
 	 *
-	 * In this kind of scenario skip the update and let the random
-	 * address be updated at the next cycle.
+	 * In this kind of scenario skip the update and let the random address
+	 * be updated at the next cycle.
 	 */
-	if (hci_dev_test_flag(hdev, HCI_LE_ADV) ||
-	    hci_lookup_le_connect(hdev)) {
+
+	if (hci_lookup_le_connect(hdev) ||
+	    (hci_dev_test_flag(hdev, HCI_LE_SCAN) &&
+			hdev->le_scan_type == LE_SCAN_ACTIVE)) {
 		BT_DBG("Deferring random address update");
 		hci_dev_set_flag(hdev, HCI_RPA_EXPIRED);
 		return;
 	}
 
+	/* Because any random address update will fail while advertising is in
+	 * progress, we pause any active instances to update the random address.
+	 */
+	if (adv_enabled) {
+		__hci_req_disable_advertising(req);
+		hci_dev_clear_flag(hdev, HCI_LE_ADV);
+	}
+
 	hci_req_add(req, HCI_OP_LE_SET_RANDOM_ADDR, 6, rpa);
+
+	/* Re-enable previously-active advertisements */
+	if (adv_enabled)
+		__hci_req_enable_paused_adv(req);
 }
 
 int hci_update_random_address(struct hci_request *req, bool require_privacy,
@@ -3368,8 +3437,7 @@ void hci_request_setup(struct hci_dev *hdev)
 	INIT_DELAYED_WORK(&hdev->le_scan_disable, le_scan_disable_work);
 	INIT_DELAYED_WORK(&hdev->le_scan_restart, le_scan_restart_work);
 	INIT_DELAYED_WORK(&hdev->adv_instance_expire, adv_timeout_expire);
-	INIT_DELAYED_WORK(&hdev->interleave_adv_monitor_scan,
-			  interleave_adv_monitor_scan_work);
+	INIT_DELAYED_WORK(&hdev->interleave_scan, interleave_scan_work);
 }
 
 void hci_request_cancel_all(struct hci_dev *hdev)

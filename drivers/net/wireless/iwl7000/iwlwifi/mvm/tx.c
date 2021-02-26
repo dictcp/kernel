@@ -265,20 +265,24 @@ static u32 iwl_mvm_get_tx_rate(struct iwl_mvm *mvm,
 			       struct ieee80211_tx_info *info,
 			       struct ieee80211_sta *sta, __le16 fc)
 {
-	int rate_idx;
+	int rate_idx = -1;
 	u8 rate_plcp;
 	u32 rate_flags = 0;
 	struct iwl_mvm_sta *mvmsta = iwl_mvm_sta_from_mac80211(sta);
 
-	/* HT rate doesn't make sense for a non data frame */
-	WARN_ONCE(info->control.rates[0].flags & IEEE80211_TX_RC_MCS &&
-		  !ieee80211_is_data(fc),
-		  "Got a HT rate (flags:0x%x/mcs:%d/fc:0x%x/state:%d) for a non data frame\n",
-		  info->control.rates[0].flags,
-		  info->control.rates[0].idx,
-		  le16_to_cpu(fc), mvmsta->sta_state);
+	/* info->control is only relevant for non HW rate control */
+	if (!ieee80211_hw_check(mvm->hw, HAS_RATE_CONTROL)) {
+		/* HT rate doesn't make sense for a non data frame */
+		WARN_ONCE(info->control.rates[0].flags & IEEE80211_TX_RC_MCS &&
+			  !ieee80211_is_data(fc),
+			  "Got a HT rate (flags:0x%x/mcs:%d/fc:0x%x/state:%d) for a non data frame\n",
+			  info->control.rates[0].flags,
+			  info->control.rates[0].idx,
+			  le16_to_cpu(fc), mvmsta->sta_state);
 
-	rate_idx = info->control.rates[0].idx;
+		rate_idx = info->control.rates[0].idx;
+	}
+
 	/* if the rate isn't a well known legacy rate, take the lowest one */
 	if (rate_idx < 0 || rate_idx >= IWL_RATE_COUNT_LEGACY)
 		rate_idx = rate_lowest_index(
@@ -776,6 +780,7 @@ iwl_mvm_tx_tso_segment(struct sk_buff *skb, unsigned int num_subframes,
 
 	next = skb_gso_segment(skb, netdev_flags);
 	skb_shinfo(skb)->gso_size = mss;
+	skb_shinfo(skb)->gso_type = ipv4 ? SKB_GSO_TCPV4 : SKB_GSO_TCPV6;
 	if (WARN_ON_ONCE(IS_ERR(next)))
 		return -EINVAL;
 	else if (next)
@@ -798,6 +803,8 @@ iwl_mvm_tx_tso_segment(struct sk_buff *skb, unsigned int num_subframes,
 
 		if (tcp_payload_len > mss) {
 			skb_shinfo(tmp)->gso_size = mss;
+			skb_shinfo(tmp)->gso_type = ipv4 ? SKB_GSO_TCPV4 :
+							   SKB_GSO_TCPV6;
 		} else {
 			if (qos) {
 				u8 *qc;
@@ -1310,7 +1317,7 @@ void iwl_mvm_hwrate_to_tx_rate(u32 rate_n_flags,
 	}
 }
 
-/**
+/*
  * translate ucode response to mac80211 tx status control values
  */
 static void iwl_mvm_hwrate_to_tx_status(u32 rate_n_flags,
@@ -1324,11 +1331,23 @@ static void iwl_mvm_hwrate_to_tx_status(u32 rate_n_flags,
 }
 
 static void iwl_mvm_tx_status_check_trigger(struct iwl_mvm *mvm,
-					    u32 status)
+					    u32 status, __le16 frame_control)
 {
 	struct iwl_fw_dbg_trigger_tlv *trig;
 	struct iwl_fw_dbg_trigger_tx_status *status_trig;
 	int i;
+
+	if ((status & TX_STATUS_MSK) != TX_STATUS_SUCCESS) {
+		enum iwl_fw_ini_time_point tp =
+			IWL_FW_INI_TIME_POINT_TX_FAILED;
+
+		if (ieee80211_is_action(frame_control))
+			tp = IWL_FW_INI_TIME_POINT_TX_WFD_ACTION_FRAME_FAILED;
+
+		iwl_dbg_tlv_time_point(&mvm->fwrt,
+				       tp, NULL);
+		return;
+	}
 
 	trig = iwl_fw_dbg_trigger_on(&mvm->fwrt, NULL,
 				     FW_DBG_TRIGGER_TX_STATUS);
@@ -1352,7 +1371,7 @@ static void iwl_mvm_tx_status_check_trigger(struct iwl_mvm *mvm,
 	}
 }
 
-/**
+/*
  * iwl_mvm_get_scd_ssn - returns the SSN of the SCD
  * @tx_resp: the Tx response from the fw (agg or non-agg)
  *
@@ -1447,7 +1466,7 @@ static void iwl_mvm_rx_tx_cmd_single(struct iwl_mvm *mvm,
 		if (skb_freed > 1)
 			info->flags |= IEEE80211_TX_STAT_ACK;
 
-		iwl_mvm_tx_status_check_trigger(mvm, status);
+		iwl_mvm_tx_status_check_trigger(mvm, status, hdr->frame_control);
 
 		info->status.rates[0].count = tx_resp->failure_frame + 1;
 		iwl_mvm_hwrate_to_tx_status(le32_to_cpu(tx_resp->initial_rate),
@@ -1638,10 +1657,13 @@ static void iwl_mvm_rx_tx_cmd_agg_dbg(struct iwl_mvm *mvm,
 	struct agg_tx_status *frame_status =
 		iwl_mvm_get_agg_status(mvm, tx_resp);
 	int i;
+	bool tirgger_timepoint = false;
 
 	for (i = 0; i < tx_resp->frame_count; i++) {
 		u16 fstatus = le16_to_cpu(frame_status[i].status);
-
+		/* In case one frame wasn't transmitted trigger time point */
+		tirgger_timepoint |= ((fstatus & AGG_TX_STATE_STATUS_MSK) !=
+				      AGG_TX_STATE_TRANSMITTED);
 		IWL_DEBUG_TX_REPLY(mvm,
 				   "status %s (0x%04x), try-count (%d) seq (0x%x)\n",
 				   iwl_get_agg_tx_status(fstatus),
@@ -1650,6 +1672,11 @@ static void iwl_mvm_rx_tx_cmd_agg_dbg(struct iwl_mvm *mvm,
 					AGG_TX_STATE_TRY_CNT_POS,
 				   le16_to_cpu(frame_status[i].sequence));
 	}
+
+	if (tirgger_timepoint)
+		iwl_dbg_tlv_time_point(&mvm->fwrt,
+				       IWL_FW_INI_TIME_POINT_TX_FAILED, NULL);
+
 }
 #else
 static void iwl_mvm_rx_tx_cmd_agg_dbg(struct iwl_mvm *mvm,

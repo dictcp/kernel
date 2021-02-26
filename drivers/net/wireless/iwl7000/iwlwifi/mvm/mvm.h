@@ -925,8 +925,12 @@ struct iwl_mvm {
 	/* last smart fifo state that was successfully sent to firmware */
 	enum iwl_sf_state sf_state;
 
-#ifdef CPTCFG_IWLWIFI_DEBUGFS
+	/*
+	 * Leave this pointer outside the ifdef below so that it can be
+	 * assigned without ifdef in the source code.
+	 */
 	struct dentry *debugfs_dir;
+#ifdef CPTCFG_IWLWIFI_DEBUGFS
 	u32 dbgfs_sram_offset, dbgfs_sram_len;
 	u32 dbgfs_prph_reg_addr;
 	bool disable_power_off;
@@ -1775,12 +1779,11 @@ void iwl_mvm_rx_umac_scan_iter_complete_notif(struct iwl_mvm *mvm,
 
 /* MVM debugfs */
 #ifdef CPTCFG_IWLWIFI_DEBUGFS
-void iwl_mvm_dbgfs_register(struct iwl_mvm *mvm, struct dentry *dbgfs_dir);
+void iwl_mvm_dbgfs_register(struct iwl_mvm *mvm);
 void iwl_mvm_vif_dbgfs_register(struct iwl_mvm *mvm, struct ieee80211_vif *vif);
 void iwl_mvm_vif_dbgfs_clean(struct iwl_mvm *mvm, struct ieee80211_vif *vif);
 #else
-static inline void iwl_mvm_dbgfs_register(struct iwl_mvm *mvm,
-					  struct dentry *dbgfs_dir)
+static inline void iwl_mvm_dbgfs_register(struct iwl_mvm *mvm)
 {
 }
 static inline void
@@ -1981,7 +1984,6 @@ int iwl_mvm_reconfig_scd(struct iwl_mvm *mvm, int queue, int fifo, int sta_id,
 
 /* Thermal management and CT-kill */
 void iwl_mvm_tt_tx_backoff(struct iwl_mvm *mvm, u32 backoff);
-void iwl_mvm_tt_temp_changed(struct iwl_mvm *mvm, u32 temp);
 void iwl_mvm_temp_notif(struct iwl_mvm *mvm,
 			struct iwl_rx_cmd_buffer *rxb);
 void iwl_mvm_tt_handler(struct iwl_mvm *mvm);
@@ -2161,6 +2163,10 @@ void iwl_mvm_sta_add_debugfs(struct ieee80211_hw *hw,
 #endif
 
 /* 11ax Softap Test Mode */
+
+int iwl_rfi_send_config_cmd(struct iwl_mvm *mvm,
+			    struct iwl_rfi_lut_entry *rfi_table);
+struct iwl_rfi_freq_table_resp_cmd *iwl_rfi_get_freq_table(struct iwl_mvm *mvm);
 
 static inline u8 iwl_mvm_phy_band_from_nl80211(enum nl80211_band band)
 {
