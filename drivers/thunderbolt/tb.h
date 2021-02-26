@@ -190,6 +190,7 @@ struct tb_switch {
  * @port: Port number on switch
  * @disabled: Disabled by eeprom or enabled but not implemented
  * @bonded: true if the port is bonded (two lanes combined as one)
+ * @retimer_scan_done: true if retimer scan is done
  * @dual_link_port: If the switch is connected using two ports, points
  *		    to the other port.
  * @link_nr: Is this primary or secondary port on the dual_link.
@@ -209,6 +210,7 @@ struct tb_port {
 	u8 port;
 	bool disabled;
 	bool bonded;
+	bool retimer_scan_done;
 	struct tb_port *dual_link_port;
 	u8 link_nr:1;
 	struct ida in_hopids;
@@ -359,12 +361,21 @@ struct tb_path {
  * @handle_event: Handle thunderbolt event
  * @get_boot_acl: Get boot ACL list
  * @set_boot_acl: Set boot ACL list
+ * @disapprove_switch: Disapprove switch (disconnect PCIe tunnel)
  * @approve_switch: Approve switch
  * @add_switch_key: Add key to switch
  * @challenge_switch_key: Challenge switch using key
  * @disconnect_pcie_paths: Disconnects PCIe paths before NVM update
  * @approve_xdomain_paths: Approve (establish) XDomain DMA paths
  * @disconnect_xdomain_paths: Disconnect XDomain DMA paths
+ * @usb4_switch_op: Optional proxy for USB4 router operations. If set
+ *		    this will be called whenever USB4 router operation is
+ *		    performed. If this returns %-EOPNOTSUPP then the
+ *		    native USB4 router operation is called.
+ * @usb4_switch_nvm_authenticate_status: Optional callback that the CM
+ *					 implementation can be used to
+ *					 return status of USB4 NVM_AUTH
+ *					 router operation.
  */
 struct tb_cm_ops {
 	int (*driver_ready)(struct tb *tb);
@@ -382,6 +393,7 @@ struct tb_cm_ops {
 			     const void *buf, size_t size);
 	int (*get_boot_acl)(struct tb *tb, uuid_t *uuids, size_t nuuids);
 	int (*set_boot_acl)(struct tb *tb, const uuid_t *uuids, size_t nuuids);
+	int (*disapprove_switch)(struct tb *tb, struct tb_switch *sw);
 	int (*approve_switch)(struct tb *tb, struct tb_switch *sw);
 	int (*add_switch_key)(struct tb *tb, struct tb_switch *sw);
 	int (*challenge_switch_key)(struct tb *tb, struct tb_switch *sw,
@@ -389,6 +401,11 @@ struct tb_cm_ops {
 	int (*disconnect_pcie_paths)(struct tb *tb);
 	int (*approve_xdomain_paths)(struct tb *tb, struct tb_xdomain *xd);
 	int (*disconnect_xdomain_paths)(struct tb *tb, struct tb_xdomain *xd);
+	int (*usb4_switch_op)(struct tb_switch *sw, u16 opcode, u32 *metadata,
+			      u8 *status, const void *tx_data, size_t tx_data_len,
+			      void *rx_data, size_t rx_data_len);
+	int (*usb4_switch_nvm_authenticate_status)(struct tb_switch *sw,
+						   u32 *status);
 };
 
 static inline void *tb_priv(struct tb *tb)
@@ -610,6 +627,7 @@ int tb_domain_suspend(struct tb *tb);
 void tb_domain_complete(struct tb *tb);
 int tb_domain_runtime_suspend(struct tb *tb);
 int tb_domain_runtime_resume(struct tb *tb);
+int tb_domain_disapprove_switch(struct tb *tb, struct tb_switch *sw);
 int tb_domain_approve_switch(struct tb *tb, struct tb_switch *sw);
 int tb_domain_approve_switch_key(struct tb *tb, struct tb_switch *sw);
 int tb_domain_challenge_switch_key(struct tb *tb, struct tb_switch *sw);
@@ -943,8 +961,9 @@ void tb_xdomain_remove(struct tb_xdomain *xd);
 struct tb_xdomain *tb_xdomain_find_by_link_depth(struct tb *tb, u8 link,
 						 u8 depth);
 
-int tb_retimer_scan(struct tb_port *port);
-void tb_retimer_remove_all(struct tb_port *port);
+int tb_retimer_scan(struct tb_port *port, bool enumerate, u32 *mux_mode,
+		    u8 *typec_port_index);
+void tb_retimer_remove_all(struct tb_port *port, struct tb_switch *sw);
 
 static inline bool tb_is_retimer(const struct device *dev)
 {
@@ -971,6 +990,7 @@ int usb4_switch_nvm_read(struct tb_switch *sw, unsigned int address, void *buf,
 int usb4_switch_nvm_write(struct tb_switch *sw, unsigned int address,
 			  const void *buf, size_t size);
 int usb4_switch_nvm_authenticate(struct tb_switch *sw);
+int usb4_switch_nvm_authenticate_status(struct tb_switch *sw, u32 *status);
 bool usb4_switch_query_dp_resource(struct tb_switch *sw, struct tb_port *in);
 int usb4_switch_alloc_dp_resource(struct tb_switch *sw, struct tb_port *in);
 int usb4_switch_dealloc_dp_resource(struct tb_switch *sw, struct tb_port *in);
@@ -1000,6 +1020,8 @@ int usb4_port_retimer_nvm_authenticate_status(struct tb_port *port, u8 index,
 					      u32 *status);
 int usb4_port_retimer_nvm_read(struct tb_port *port, u8 index,
 			       unsigned int address, void *buf, size_t size);
+int usb4_port_set_inbound_sbtx(struct tb_port *port, u8 index, bool set);
+int usb4_port_router_offline(struct tb_port *port, bool offline);
 
 int usb4_usb3_port_max_link_rate(struct tb_port *port);
 int usb4_usb3_port_actual_link_rate(struct tb_port *port);
