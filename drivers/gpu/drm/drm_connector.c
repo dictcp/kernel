@@ -150,45 +150,6 @@ static struct dmi_system_id nettop_no_lvds_dmi_table[] = {
 	{ }
 };
 
-static struct dmi_system_id allow_svideo_dmi_table[] = {
-	/* In general we disable SVIDEO connectors because on some models
-	 * the Intel driver hangs on during boot while setting up SVIDEO,
-	 * but some iMacs/MacBooks have corrupt graphics if SVIDEO is
-	 * disabled. [OVER-6829] */
-	/* Note: some of these machines have a vendor of "Apple Inc.",
-	 * others have "Apple Computer, Inc.". Using "Apple" works for both
-	 * because it's a substring match. */
-	{
-		.ident = "Apple MacBook 1,1",
-		.matches = {
-			DMI_MATCH(DMI_SYS_VENDOR, "Apple"),
-			DMI_MATCH(DMI_PRODUCT_NAME, "MacBook1,1"),
-		},
-	},
-	{
-		.ident = "Apple MacBook 2,1",
-		.matches = {
-			DMI_MATCH(DMI_SYS_VENDOR, "Apple"),
-			DMI_MATCH(DMI_PRODUCT_NAME, "MacBook2,1"),
-		},
-	},
-	{
-		.ident = "Apple iMac 4,2",
-		.matches = {
-			DMI_MATCH(DMI_SYS_VENDOR, "Apple"),
-			DMI_MATCH(DMI_PRODUCT_NAME, "iMac4,2"),
-		},
-	},
-	{
-		.ident = "Apple iMac 5,2",
-		.matches = {
-			DMI_MATCH(DMI_SYS_VENDOR, "Apple"),
-			DMI_MATCH(DMI_PRODUCT_NAME, "iMac5,2"),
-		},
-	},
-	{ }
-};
-
 /**
  * drm_connector_get_cmdline_mode - reads the user's cmdline mode
  * @connector: connector to quwery
@@ -212,24 +173,6 @@ static void drm_connector_get_cmdline_mode(struct drm_connector *connector)
 		DRM_INFO("Quirk: Forcing %s connector OFF\n",
 			 connector->name);
 		connector->force = DRM_FORCE_OFF;
-	}
-
-	/* Force SVIDEO connectors off.
-	 * Neverware does not support these and the intel driver
-	 * delays and possibly hangs when attempting to use them.
-	 * Users may override this to enable the connector via
-	 * the command line option: video=<name>:e.
-	 * OVER-6725
-	 */
-	if (connector->connector_type == DRM_MODE_CONNECTOR_SVIDEO) {
-		if (dmi_check_system(allow_svideo_dmi_table)) {
-			DRM_INFO("OVER-6829: Allowing %s connector\n",
-				connector->name);
-		} else {
-			DRM_INFO("OVER-6725: Forcing %s connector OFF\n",
-				connector->name);
-			connector->force = DRM_FORCE_OFF;
-		}
 	}
 
 	if (fb_get_options(connector->name, &option))
