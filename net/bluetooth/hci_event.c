@@ -395,6 +395,29 @@ done:
 	hci_dev_unlock(hdev);
 }
 
+static void hci_cc_set_event_filter(struct hci_dev *hdev, struct sk_buff *skb)
+{
+	__u8 status = *((__u8 *)skb->data);
+	struct hci_cp_set_event_filter *cp;
+	void *sent;
+
+	BT_DBG("%s status 0x%2.2x", hdev->name, status);
+
+	if (status)
+		return;
+
+	sent = hci_sent_cmd_data(hdev, HCI_OP_SET_EVENT_FLT);
+	if (!sent)
+		return;
+
+	cp = (struct hci_cp_set_event_filter *)sent;
+
+	if (cp->flt_type == HCI_FLT_CLEAR_ALL)
+		hci_dev_clear_flag(hdev, HCI_EVENT_FILTER_CONFIGURED);
+	else
+		hci_dev_set_flag(hdev, HCI_EVENT_FILTER_CONFIGURED);
+}
+
 static void hci_cc_read_class_of_dev(struct hci_dev *hdev, struct sk_buff *skb)
 {
 	struct hci_rp_read_class_of_dev *rp = (void *) skb->data;
@@ -3338,6 +3361,10 @@ static void hci_cmd_complete_evt(struct hci_dev *hdev, struct sk_buff *skb,
 		hci_cc_write_scan_enable(hdev, skb);
 		break;
 
+	case HCI_OP_SET_EVENT_FLT:
+		hci_cc_set_event_filter(hdev, skb);
+		break;
+
 	case HCI_OP_READ_CLASS_OF_DEV:
 		hci_cc_read_class_of_dev(hdev, skb);
 		break;
@@ -5019,6 +5046,7 @@ static void hci_loglink_complete_evt(struct hci_dev *hdev, struct sk_buff *skb)
 		return;
 
 	hchan->handle = le16_to_cpu(ev->handle);
+	hchan->amp = true;
 
 	BT_DBG("hcon %p mgr %p hchan %p", hcon, hcon->amp_mgr, hchan);
 
@@ -5051,7 +5079,7 @@ static void hci_disconn_loglink_complete_evt(struct hci_dev *hdev,
 	hci_dev_lock(hdev);
 
 	hchan = hci_chan_lookup_handle(hdev, le16_to_cpu(ev->handle));
-	if (!hchan)
+	if (!hchan || !hchan->amp)
 		goto unlock;
 
 	amp_destroy_logical_link(hchan, ev->reason);
@@ -5307,12 +5335,22 @@ static void hci_le_ext_adv_term_evt(struct hci_dev *hdev, struct sk_buff *skb)
 cleanup_instance:
 	/* Since the controller tells us this instance is no longer active, we
 	 * remove it.
+	 *
+	 * One caveat is that if the status is HCI_ERROR_CANCELLED_BY_HOST, this
+	 * event is being fired as a result of a hci_cp_le_set_ext_adv_enable
+	 * disable request, which will have its own callback and cleanup via
+	 * the hci_cc_le_set_ext_adv_enable path. If this is the case, we will
+	 * not remove the instance, as it may only be a temporary disable.
 	 */
-	hci_remove_adv_instance(hdev, ev->handle);
+	if (ev->status != HCI_ERROR_CANCELLED_BY_HOST) {
+		hci_remove_adv_instance(hdev, ev->handle);
 
-	/* If we are no longer advertising, clear HCI_LE_ADV */
-	if (list_empty(&hdev->adv_instances) && !hdev->ext_directed_advertising)
-		hci_dev_clear_flag(hdev, HCI_LE_ADV);
+		/* If we are no longer advertising, clear HCI_LE_ADV */
+		if (list_empty(&hdev->adv_instances) &&
+		    !hdev->ext_directed_advertising) {
+			hci_dev_clear_flag(hdev, HCI_LE_ADV);
+		}
+	}
 }
 
 static void hci_le_conn_update_complete_evt(struct hci_dev *hdev,

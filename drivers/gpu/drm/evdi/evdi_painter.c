@@ -545,7 +545,8 @@ void evdi_painter_mode_changed_notify(struct evdi_device *evdi,
 				       new_mode,
 				       bits_per_pixel,
 				       pixel_format);
-	painter->needs_full_modeset = false;
+	if (painter)
+		painter->needs_full_modeset = false;
 }
 
 static void evdi_add_i2c_adapter(struct evdi_device *evdi)
