@@ -49,6 +49,10 @@ struct evdi_platform_device_data {
 	bool symlinked;
 };
 
+static void
+evdi_platform_device_unlink_if_linked_with(struct platform_device *pdev,
+					   struct device *parent);
+
 static int evdi_platform_drv_usb(__always_unused struct notifier_block *nb,
 		unsigned long action,
 		void *data)
@@ -91,7 +95,7 @@ static int evdi_context_get_free_idx(struct evdi_context *ctx)
 	return -ENOMEM;
 }
 
-bool evdi_platform_device_is_free(struct platform_device *pdev)
+static bool evdi_platform_device_is_free(struct platform_device *pdev)
 {
 	struct evdi_platform_device_data *data =
 		(struct evdi_platform_device_data *)platform_get_drvdata(pdev);
@@ -103,7 +107,7 @@ bool evdi_platform_device_is_free(struct platform_device *pdev)
 	return false;
 }
 
-void evdi_platform_device_link(struct platform_device *pdev,
+static void evdi_platform_device_link(struct platform_device *pdev,
 				      struct device *parent)
 {
 	struct evdi_platform_device_data *data = NULL;
@@ -127,7 +131,7 @@ void evdi_platform_device_link(struct platform_device *pdev,
 	}
 }
 
-void evdi_platform_device_unlink_if_linked_with(struct platform_device *pdev,
+static void evdi_platform_device_unlink_if_linked_with(struct platform_device *pdev,
 				struct device *parent)
 {
 	struct evdi_platform_device_data *data =
@@ -286,42 +290,46 @@ static int evdi_add_device(struct evdi_context *ctx, struct device *parent)
 
 static int evdi_platform_probe(struct platform_device *pdev)
 {
-	int ret = 0;
-	struct drm_device *dev = NULL;
-	struct evdi_platform_device_data *data =
-		kzalloc(sizeof(struct evdi_platform_device_data), GFP_KERNEL);
+	int ret;
+	struct drm_device *dev;
+	struct evdi_platform_device_data *data;
 
 	EVDI_CHECKPT();
 
+	data = kzalloc(sizeof(struct evdi_platform_device_data), GFP_KERNEL);
+	if (!data)
+		return -ENOMEM;
+
 	dev = drm_dev_alloc(&driver, &pdev->dev);
-	if (IS_ERR(dev))
-		return PTR_ERR(dev);
+	if (IS_ERR(dev)) {
+		ret = PTR_ERR(dev);
+		goto err_free;
+	}
 
 	ret = evdi_driver_setup(dev);
 	if (ret)
-		goto err_free;
+		goto err_put_dev;
 
 	ret = drm_dev_register(dev, 0);
 	if (ret)
-		goto err_free;
-	else {
-		data->drm_dev = dev;
-		data->symlinked = false;
-		platform_set_drvdata(pdev, data);
-	}
+		goto err_put_dev;
+
+	data->drm_dev = dev;
+	data->symlinked = false;
+	platform_set_drvdata(pdev, data);
 
 	return 0;
 
-err_free:
+err_put_dev:
 	drm_dev_put(dev);
+err_free:
 	kfree(data);
 	return ret;
 }
 
 static int evdi_platform_remove(struct platform_device *pdev)
 {
-	struct evdi_platform_device_data *data =
-		(struct evdi_platform_device_data *)platform_get_drvdata(pdev);
+	struct evdi_platform_device_data *data = platform_get_drvdata(pdev);
 
 	EVDI_CHECKPT();
 
@@ -389,20 +397,21 @@ static ssize_t add_device_with_usb_path(struct device *dev,
 {
 	char *usb_path = kstrdup(buf, GFP_KERNEL);
 	char *temp_path = usb_path;
-	char *bus_token = NULL;
-	char *usb_token = NULL;
+	char *bus_token;
+	char *usb_token;
 	char *usb_token_copy = NULL;
-	char *itf_token = NULL;
-	char *token = NULL;
-	char *bus = NULL;
-	char *port = NULL;
+	char *token;
+	char *bus;
+	char *port;
 	struct evdi_usb_addr usb_addr;
+
+	if (!usb_path)
+		return -ENOMEM;
 
 	memset(&usb_addr, 0, sizeof(usb_addr));
 	temp_path = strnstr(temp_path, "usb:", count);
 	if (!temp_path)
 		goto err_parse_usb_path;
-
 
 	temp_path = strim(temp_path);
 
@@ -414,7 +423,8 @@ static ssize_t add_device_with_usb_path(struct device *dev,
 	if (!usb_token)
 		goto err_parse_usb_path;
 
-	itf_token = strsep(&temp_path, ":");
+	/* Separate trailing ':*' from usb_token */
+	strsep(&temp_path, ":");
 
 	token = usb_token_copy = kstrdup(usb_token, GFP_KERNEL);
 	bus = strsep(&token, "-");
