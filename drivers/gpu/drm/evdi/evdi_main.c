@@ -19,7 +19,7 @@
 
 int evdi_driver_setup(struct drm_device *dev)
 {
-	struct platform_device *platdev = NULL;
+	struct platform_device *platdev;
 	struct evdi_device *evdi;
 	int ret;
 
@@ -31,9 +31,9 @@ int evdi_driver_setup(struct drm_device *dev)
 	evdi->ddev = dev;
 	dev->dev_private = evdi;
 
-	ret =  evdi_cursor_init(&evdi->cursor);
+	ret = evdi_cursor_init(&evdi->cursor);
 	if (ret)
-		goto err;
+		goto err_free;
 
 	EVDI_CHECKPT();
 	evdi_modeset_init(dev);
@@ -41,7 +41,7 @@ int evdi_driver_setup(struct drm_device *dev)
 #ifdef CONFIG_FB
 	ret = evdi_fbdev_init(dev);
 	if (ret)
-		goto err;
+		goto err_cursor;
 #endif /* CONFIG_FB */
 
 	ret = drm_vblank_init(dev, 1);
@@ -62,11 +62,11 @@ int evdi_driver_setup(struct drm_device *dev)
 err_fb:
 #ifdef CONFIG_FB
 	evdi_fbdev_cleanup(dev);
+err_cursor:
 #endif /* CONFIG_FB */
-err:
+	evdi_cursor_free(evdi->cursor);
+err_free:
 	EVDI_ERROR("%d\n", ret);
-	if (evdi->cursor)
-		evdi_cursor_free(evdi->cursor);
 	kfree(evdi);
 	return ret;
 }

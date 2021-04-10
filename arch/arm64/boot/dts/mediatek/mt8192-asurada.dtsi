@@ -43,6 +43,7 @@
 
 	sound: mt8192-sound {
 		mediatek,platform = <&afe>;
+		mediatek,hdmi-codec = <&anx_bridge_dp>;
 		pinctrl-names = "aud_clk_mosi_off",
 				"aud_clk_mosi_on",
 				"aud_dat_mosi_off",
@@ -231,6 +232,11 @@
 			reg = <0 0x50000000 0 0x2900000>;
 			no-map;
 		};
+
+		wifi_restricted_dma_region: wifi_restricted_dma_region {
+			compatible = "restricted-dma-pool";
+			reg = <0 0xC0000000 0 0x4000000>;
+		};
 	};
 
 	usb_vbus_3v3: fixedregulator@1 {
@@ -342,6 +348,7 @@
 	pinctrl-0 = <&i2c2_pins>;
 	status = "okay";
 	clock-frequency = <400000>;
+	clock-stretch-ns = <12600>;
 
 	touchpad@15 {
 		compatible = "elan,ekth3000";
@@ -383,6 +390,8 @@
 				reg = <0>;
 				anx7625_in: endpoint {
 					remote-endpoint = <&dsi_out>;
+					bus-type = <5>;
+					data-lanes = <0 1 2 3>;
 				};
 			};
 
@@ -418,12 +427,25 @@
 		pinctrl-0 = <&anx7625_dp_pins>;
 		enable-gpios = <&pio 8 GPIO_ACTIVE_HIGH>;
 		reset-gpios = <&pio 9 GPIO_ACTIVE_HIGH>;
-		anx,mipi-dpi-in = <1>;
 		interrupt-parent = <&pio>;
 		interrupts = <7 IRQ_TYPE_LEVEL_LOW>;
 		vdd10-supply = <&pp1000_dpbrdg>;
 		vdd18-supply = <&pp1800_dpbrdg>;
 		vdd33-supply = <&pp3300_dpbrdg>;
+
+		analogix,lane0-swing = <0x14 0x54 0x64 0x74
+					0x29 0x7b 0x77 0x5b
+					0x7f 0x7f 0x3f 0x3c
+					0x20 0x60 0x3c 0x25
+					0x60 0x2c 0x40 0x60>;
+		analogix,lane1-swing = <0x14 0x54 0x64 0x74
+					0x29 0x7b 0x77 0x5b
+					0x7f 0x7f 0x3f 0x3c
+					0x20 0x60 0x3c 0x25
+					0x60 0x2c 0x40 0x60>;
+		anx,tx-rx-to-two-ports;
+		#address-cells = <1>;
+		#size-cells = <0>;
 
 		ports {
 			#address-cells = <1>;
@@ -433,6 +455,30 @@
 				reg = <0>;
 				anx7625_dp_in: endpoint {
 					remote-endpoint = <&dpi_out>;
+				};
+			};
+		};
+
+		anx_mux0 {
+			compatible = "typec-mode-switch";
+			reg = <0>;
+			accessory;
+
+			port {
+				anx_typec0: endpoint {
+					remote-endpoint = <&typec_port0>;
+				};
+			};
+		};
+
+		anx_mux1 {
+			compatible = "typec-mode-switch";
+			reg = <1>;
+			accessory;
+
+			port {
+				anx_typec1: endpoint {
+					remote-endpoint = <&typec_port1>;
 				};
 			};
 		};
@@ -485,6 +531,25 @@
 	no-sdio;
 };
 
+/* for CORE */
+&mt6359_vgpu11_buck_reg {
+	regulator-always-on;
+};
+
+&mt6359_vgpu11_sshub_buck_reg {
+	regulator-always-on;
+	regulator-min-microvolt = <575000>;
+	regulator-max-microvolt = <575000>;
+};
+
+&mt6359_vrf12_ldo_reg {
+	regulator-always-on;
+};
+
+&mt6359_vufs_ldo_reg {
+	regulator-always-on;
+};
+
 &mt6359codec {
 	mediatek,dmic-mode = <1>; /* one-wire */
 	mediatek,mic-type-0 = <2>; /* DMIC */
@@ -511,6 +576,22 @@
 	status = "okay";
 	pinctrl-names = "default";
 	pinctrl-0 = <&pcie_pinmux>;
+
+	pcie0: pcie@0,0 {
+		device_type = "pci";
+		reg = <0x0000 0 0 0 0>;
+		#address-cells = <3>;
+		#size-cells = <2>;
+		ranges;
+		num-lanes = <1>;
+		bus-range = <0x1 0x1>;
+
+		rtw_wifi: rtw_wifi@0,0 {
+			reg = <0x83010000 0x0 0x00000000 0x0 0x00100000
+			       0x83010000 0x0 0x00100000 0x0 0x00100000>;
+			memory-region = <&wifi_restricted_dma_region>;
+		};
+	};
 };
 
 &pio {
@@ -777,6 +858,7 @@
 		pins_cmd_dat {
 			pinmux = <PINMUX_GPIO214__FUNC_AUD_CLK_MOSI>,
 				 <PINMUX_GPIO215__FUNC_AUD_SYNC_MOSI>;
+				 drive-strength = <MTK_DRIVE_4mA>;
 		};
 	};
 
@@ -803,6 +885,7 @@
 		pins_cmd_dat {
 			pinmux = <PINMUX_GPIO218__FUNC_AUD_DAT_MISO0>,
 				 <PINMUX_GPIO219__FUNC_AUD_DAT_MISO1>;
+				 drive-strength = <MTK_DRIVE_4mA>;
 		};
 	};
 
@@ -841,6 +924,7 @@
 		pins_cmd_dat {
 			pinmux = <PINMUX_GPIO216__FUNC_AUD_DAT_MOSI0>,
 				 <PINMUX_GPIO217__FUNC_AUD_DAT_MOSI1>;
+				 drive-strength = <MTK_DRIVE_4mA>;
 		};
 	};
 
@@ -1061,7 +1145,6 @@
 			bias-pull-up;
 			mediatek,pull-up-adv = <3>;
 			mediatek,drive-strength-adv = <0>;
-			drive-strength = <1>;
 		};
 	};
 
@@ -1322,6 +1405,12 @@
 		};
 	};
 
+	scp_pins: scp {
+		pins_scp_vreq {
+			pinmux = <PINMUX_GPIO195__FUNC_SCP_VREQ_VAO>;
+		};
+	};
+
 	spi_pins_1: spi1@0 {
 		pins_spi{
 			pinmux = <PINMUX_GPIO157__FUNC_SPI1_A_CSB>,
@@ -1380,11 +1469,11 @@
 		};
 		pins_cts {
 			pinmux = <PINMUX_GPIO166__FUNC_UCTS1>;
-			output-enable;
+			input-enable;
 		};
 		pins_rts {
 			pinmux = <PINMUX_GPIO167__FUNC_URTS1>;
-			input-enable;
+			output-enable;
 		};
 	};
 
@@ -1399,11 +1488,11 @@
 		};
 		pins_cts {
 			pinmux = <PINMUX_GPIO166__FUNC_UCTS1>;
-			output-enable;
+			input-enable;
 		};
 		pins_rts {
 			pinmux = <PINMUX_GPIO167__FUNC_URTS1>;
-			input-enable;
+			output-enable;
 		};
 	};
 
@@ -1446,6 +1535,8 @@
 &scp {
 	memory-region = <&scp_mem_reserved>;
 	status = "okay";
+	pinctrl-names = "default";
+	pinctrl-0 = <&scp_pins>;
 
 	cros_ec {
 		compatible = "google,cros-ec-rpmsg";
@@ -1482,12 +1573,6 @@
 			compatible = "google,cros-cbas";
 		};
 
-		usbc_extcon: extcon@0 {
-			compatible = "google,extcon-usbc-cros-ec";
-			google,usb-port-id = <0>;
-			#extcon-cells = <0>;
-		};
-
 		mt6360_ldo3_reg: regulator@0 {
 			compatible = "google,cros-ec-regulator";
 			regulator-min-microvolt = <1800000>;
@@ -1500,6 +1585,56 @@
 			regulator-min-microvolt = <3300000>;
 			regulator-max-microvolt = <3300000>;
 			reg = <1>;
+		};
+
+		typec {
+			compatible = "google,cros-ec-typec";
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			usb_c0: connector@0 {
+				compatible = "usb-c-connector";
+				reg = <0>;
+				label = "left";
+				power-role = "dual";
+				data-role = "host";
+				try-power-role = "source";
+
+				ports {
+					#address-cells = <1>;
+					#size-cells = <0>;
+
+					port@1 {
+						reg = <1>;
+
+						typec_port0: endpoint {
+							remote-endpoint = <&anx_typec0>;
+						};
+					};
+				};
+			};
+
+			usb_c1: connector@1 {
+				compatible = "usb-c-connector";
+				reg = <1>;
+				label = "right";
+				power-role = "dual";
+				data-role = "host";
+				try-power-role = "source";
+
+				ports {
+					#address-cells = <1>;
+					#size-cells = <0>;
+
+					port@1 {
+						reg = <1>;
+
+						typec_port1: endpoint {
+							remote-endpoint = <&anx_typec1>;
+						};
+					};
+				};
+			};
 		};
 	};
 };
@@ -1598,3 +1733,11 @@
 
 #include <arm/cros-ec-keyboard.dtsi>
 #include <arm/cros-ec-sbs.dtsi>
+
+&cros_ec {
+	cros_ec_pwm: ec-pwm {
+		compatible = "google,cros-ec-pwm";
+		#pwm-cells = <1>;
+		status = "disabled";
+	};
+};

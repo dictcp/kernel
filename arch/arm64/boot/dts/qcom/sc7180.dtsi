@@ -111,9 +111,9 @@
 			no-map;
 		};
 
-		rmtfs_mem: memory@84400000 {
+		rmtfs_mem: memory@94600000 {
 			compatible = "qcom,rmtfs-mem";
-			reg = <0x0 0x84400000 0x0 0x200000>;
+			reg = <0x0 0x94600000 0x0 0x200000>;
 			no-map;
 
 			qcom,client-id = <1>;
@@ -1852,12 +1852,6 @@
 					pins = "gpio49", "gpio50", "gpio51";
 					function = "mi2s_1";
 				};
-
-				pinconf {
-					pins = "gpio49", "gpio50", "gpio51";
-					drive-strength = <2>;
-					bias-pull-down;
-				};
 			};
 
 			pri_mi2s_active: pri-mi2s-active {
@@ -1865,24 +1859,12 @@
 					pins = "gpio53", "gpio54", "gpio55", "gpio56";
 					function = "mi2s_0";
 				};
-
-				pinconf {
-					pins = "gpio53", "gpio54", "gpio55", "gpio56";
-					drive-strength = <2>;
-					bias-pull-down;
-				};
 			};
 
 			pri_mi2s_mclk_active: pri-mi2s-mclk-active {
 				pinmux {
 					pins = "gpio57";
 					function = "lpass_ext";
-				};
-
-				pinconf {
-					pins = "gpio57";
-					drive-strength = <2>;
-					bias-pull-down;
 				};
 			};
 
@@ -3437,6 +3419,7 @@
 			compatible = "qcom,apss-wdt-sc7180", "qcom,kpss-wdt";
 			reg = <0 0x17c10000 0 0x1000>;
 			clocks = <&sleep_clk>;
+			interrupts = <GIC_SPI 0 IRQ_TYPE_LEVEL_HIGH>;
 		};
 
 		timer@17c20000{
