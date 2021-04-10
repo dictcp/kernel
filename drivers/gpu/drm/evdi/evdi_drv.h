@@ -48,6 +48,8 @@ struct evdi_device {
 	struct evdi_painter *painter;
 	struct i2c_adapter *i2c_adapter;
 
+	atomic_t frame_count;
+
 	int dev_index;
 };
 
@@ -114,6 +116,8 @@ int evdi_gem_vmap(struct evdi_gem_object *obj);
 void evdi_gem_vunmap(struct evdi_gem_object *obj);
 int evdi_drm_gem_mmap(struct file *filp, struct vm_area_struct *vma);
 vm_fault_t evdi_gem_fault(struct vm_fault *vmf);
+void evdi_stats_init(struct evdi_device *evdi);
+void evdi_stats_cleanup(struct evdi_device *evdi);
 
 bool evdi_painter_is_connected(struct evdi_device *evdi);
 void evdi_painter_close(struct evdi_device *evdi, struct drm_file *file);

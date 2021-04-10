@@ -318,6 +318,8 @@ static int evdi_platform_probe(struct platform_device *pdev)
 	data->symlinked = false;
 	platform_set_drvdata(pdev, data);
 
+	evdi_stats_init(dev->dev_private);
+
 	return 0;
 
 err_put_dev:

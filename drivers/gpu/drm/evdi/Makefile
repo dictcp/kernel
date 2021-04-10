@@ -7,8 +7,7 @@
 #
 ccflags-y := -Iinclude/drm
 
-# Neverware: removed evdi_stats.o [OVER-9912]
-evdi-y := evdi_drv.o evdi_modeset.o evdi_connector.o evdi_encoder.o evdi_main.o evdi_fb.o evdi_gem.o evdi_painter.o evdi_debug.o evdi_cursor.o evdi_i2c.o
+evdi-y := evdi_drv.o evdi_modeset.o evdi_connector.o evdi_encoder.o evdi_main.o evdi_fb.o evdi_gem.o evdi_stats.o evdi_painter.o evdi_debug.o evdi_cursor.o evdi_i2c.o
 
 evdi-$(CONFIG_COMPAT) += evdi_ioc32.o
 
