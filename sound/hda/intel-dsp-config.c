@@ -340,6 +340,14 @@ neverware_sof_allowed_models[] = {
 			DMI_MATCH(DMI_PRODUCT_NAME, "Latitude 3510"),
 		}
 	},
+	/* [OVER-13861] */
+	{
+		.ident = "Dell Latitude 3410",
+		.matches = {
+			DMI_MATCH(DMI_SYS_VENDOR, "Dell"),
+			DMI_MATCH(DMI_PRODUCT_NAME, "Latitude 3410"),
+		}
+	},
 	{ }
 };
 
