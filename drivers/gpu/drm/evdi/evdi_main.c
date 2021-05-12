@@ -31,6 +31,7 @@ int evdi_driver_setup(struct drm_device *dev)
 	evdi->ddev = dev;
 	dev->dev_private = evdi;
 
+	evdi->cursor_events_enabled = false;
 	ret = evdi_cursor_init(&evdi->cursor);
 	if (ret)
 		goto err_free;
@@ -84,6 +85,7 @@ void evdi_driver_unload(struct drm_device *dev)
 
 	if (evdi->cursor)
 		evdi_cursor_free(evdi->cursor);
+
 	evdi_painter_cleanup(evdi);
 #ifdef CONFIG_FB
 	evdi_fbdev_cleanup(dev);
