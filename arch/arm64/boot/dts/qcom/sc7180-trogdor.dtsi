@@ -202,6 +202,8 @@
 		regulator-min-microvolt = <3300000>;
 		regulator-max-microvolt = <3300000>;
 
+		regulator-boot-on;
+
 		gpio = <&tlmm 84 GPIO_ACTIVE_HIGH>;
 		enable-active-high;
 		pinctrl-names = "default";
@@ -1024,6 +1026,7 @@ ap_spi_fp: &spi10 {
 &qspi_clk {
 	pinconf {
 		pins = "gpio63";
+		drive-strength = <8>;
 		bias-disable;
 	};
 };
