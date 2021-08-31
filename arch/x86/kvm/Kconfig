@@ -45,6 +45,7 @@ config KVM
 	select KVM_GENERIC_DIRTYLOG_READ_PROTECT
 	select KVM_VFIO
 	select SRCU
+	select HAVE_KVM_PM_NOTIFIER if PM
 	---help---
 	  Support hosting fully virtualized guest machines using hardware
 	  virtualization extensions.  You will need a fairly recent
@@ -71,6 +72,15 @@ config KVM_INTEL
 	  To compile this as a module, choose M here: the module
 	  will be called kvm-intel.
 
+config KVM_INVEPT_GLOBAL
+	bool "Always use global context for INVEPT"
+	default n
+	depends on KVM_INTEL
+	---help---
+	  Always use global context for INVEPT, to workaround b/188008861.
+
+	  If unsure, say N.
+
 config KVM_AMD
 	tristate "KVM for AMD processors support"
 	depends on KVM
@@ -96,6 +106,31 @@ config KVM_MMU_AUDIT
 	---help---
 	 This option adds a R/W kVM module parameter 'mmu_audit', which allows
 	 auditing of KVM MMU events at runtime.
+
+config KVM_HETEROGENEOUS_RT
+	bool "Support for heterogeneous real-time VCPU configurations"
+	depends on KVM
+	select HAVE_KVM_MAY_PREEMPT
+	help
+	 Allows some VCPUs to be real-time. Without this option, if some
+	 VCPUs are real-time while others are not, extremely long latencies
+	 might be experienced. Needs guest with CONFIG_PREEMPT_COUNT_REPORTING
+	 enabled.
+
+         If in doubt, say "N".
+
+config KVM_VIRT_SUSPEND_TIMING
+	bool "Virtual suspend time injection"
+	depends on KVM=y
+	default n
+	help
+	 This option makes the host's suspension reflected on the guest's clocks.
+	 In other words, guest's CLOCK_MONOTONIC will stop and
+	 CLOCK_BOOTTIME keeps running during the host's suspension.
+	 This feature will only be effective when both guest and host enable
+	 this option.
+
+	 If unsure, say N.
 
 # OK, it's a little counter-intuitive to do this, but it puts it neatly under
 # the virtualization menu.

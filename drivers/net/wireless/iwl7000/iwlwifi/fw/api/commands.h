@@ -521,6 +521,11 @@ enum iwl_legacy_cmds {
 	DTS_MEASUREMENT_NOTIFICATION = 0xdd,
 
 	/**
+	 * @DEBUG_HOST_COMMAND: &struct iwl_dhc_cmd
+	 */
+	DEBUG_HOST_COMMAND = 0xf1,
+
+	/**
 	 * @LDBG_CONFIG_CMD: configure continuous trace recording
 	 */
 	LDBG_CONFIG_CMD = 0xf6,
@@ -560,11 +565,6 @@ enum iwl_legacy_cmds {
 	OFFLOADS_QUERY_CMD = 0xd5,
 
 	/**
-	 * @REMOTE_WAKE_CONFIG_CMD: &struct iwl_wowlan_remote_wake_config
-	 */
-	REMOTE_WAKE_CONFIG_CMD = 0xd6,
-
-	/**
 	 * @D0I3_END_CMD: End D0i3/D3 state, no command data
 	 */
 	D0I3_END_CMD = 0xed,
@@ -580,7 +580,8 @@ enum iwl_legacy_cmds {
 	WOWLAN_CONFIGURATION = 0xe1,
 
 	/**
-	 * @WOWLAN_TSC_RSC_PARAM: &struct iwl_wowlan_rsc_tsc_params_cmd
+	 * @WOWLAN_TSC_RSC_PARAM: &struct iwl_wowlan_rsc_tsc_params_cmd_v4,
+	 *	&struct iwl_wowlan_rsc_tsc_params_cmd
 	 */
 	WOWLAN_TSC_RSC_PARAM = 0xe2,
 

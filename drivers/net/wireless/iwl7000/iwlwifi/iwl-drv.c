@@ -90,7 +90,7 @@ enum {
 };
 
 /* Protects the table contents, i.e. the ops pointer & drv list */
-static struct mutex iwlwifi_opmode_table_mtx;
+static DEFINE_MUTEX(iwlwifi_opmode_table_mtx);
 static struct iwlwifi_opmode_table {
 	const char *name;			/* name: iwldvm, iwlmvm, etc */
 	const struct iwl_op_mode_ops *ops;	/* pointer to op_mode ops */
@@ -792,7 +792,7 @@ static int iwl_parse_tlv_firmware(struct iwl_drv *drv,
 				bool *usniffer_images)
 {
 	struct iwl_tlv_ucode_header *ucode = (void *)ucode_raw->data;
-	struct iwl_ucode_tlv *tlv;
+	const struct iwl_ucode_tlv *tlv;
 	size_t len = ucode_raw->size;
 	const u8 *data;
 	u32 tlv_len;
@@ -1398,6 +1398,17 @@ fw_dbg_conf:
 				IWL_ERROR_EVENT_TABLE_LMAC1;
 			break;
 			}
+		case IWL_UCODE_TLV_TCM_DEBUG_ADDRS: {
+			struct iwl_fw_tcm_error_addr *ptr = (void *)tlv_data;
+
+			if (tlv_len != sizeof(*ptr))
+				goto invalid_tlv_len;
+			drv->trans->dbg.tcm_error_event_table =
+				le32_to_cpu(ptr->addr) & ~FW_ADDR_CACHE_CONTROL;
+			drv->trans->dbg.error_event_table_tlv_status |=
+				IWL_ERROR_EVENT_TABLE_TCM;
+			break;
+			}
 		case IWL_UCODE_TLV_TYPE_DEBUG_INFO:
 		case IWL_UCODE_TLV_TYPE_BUFFER_ALLOCATION:
 		case IWL_UCODE_TLV_TYPE_HCMD:
@@ -1845,7 +1856,7 @@ static void iwl_req_fw_callback(const struct firmware *ucode_raw, void *context)
 		break;
 	default:
 		WARN(1, "Invalid fw type %d\n", fw->type);
-		/* fall through */
+		fallthrough;
 	case IWL_FW_MVM:
 		op = &iwlwifi_opmode_table[MVM_OP_MODE];
 		break;
@@ -2082,8 +2093,6 @@ IWL_EXPORT_SYMBOL(iwl_opmode_deregister);
 static int __init iwl_drv_init(void)
 {
 	int i, err;
-
-	mutex_init(&iwlwifi_opmode_table_mtx);
 
 	for (i = 0; i < ARRAY_SIZE(iwlwifi_opmode_table); i++)
 		INIT_LIST_HEAD(&iwlwifi_opmode_table[i].drv);

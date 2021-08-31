@@ -15,6 +15,7 @@
 #include <linux/if_arp.h>
 #include <linux/netdevice.h>
 #include <linux/rtnetlink.h>
+#include <linux/kcov.h>
 #include <net/mac80211.h>
 #include <net/ieee80211_radiotap.h>
 #include "ieee80211_i.h"
@@ -357,11 +358,18 @@ static int ieee80211_open(struct net_device *dev)
 	if (err)
 		return err;
 
-	return ieee80211_do_open(&sdata->wdev, true);
+#if CFG80211_VERSION >= KERNEL_VERSION(5,12,0)
+	wiphy_lock(sdata->local->hw.wiphy);
+#endif
+	err = ieee80211_do_open(&sdata->wdev, true);
+#if CFG80211_VERSION >= KERNEL_VERSION(5,12,0)
+	wiphy_unlock(sdata->local->hw.wiphy);
+#endif
+
+	return err;
 }
 
-static void ieee80211_do_stop(struct ieee80211_sub_if_data *sdata,
-			      bool going_down)
+static void ieee80211_do_stop(struct ieee80211_sub_if_data *sdata, bool going_down)
 {
 	struct ieee80211_local *local = sdata->local;
 	unsigned long flags;
@@ -640,7 +648,13 @@ static int ieee80211_stop(struct net_device *dev)
 {
 	struct ieee80211_sub_if_data *sdata = IEEE80211_DEV_TO_SUB_IF(dev);
 
+#if CFG80211_VERSION >= KERNEL_VERSION(5,12,0)
+	wiphy_lock(sdata->local->hw.wiphy);
+#endif
 	ieee80211_do_stop(sdata, true);
+#if CFG80211_VERSION >= KERNEL_VERSION(5,12,0)
+	wiphy_unlock(sdata->local->hw.wiphy);
+#endif
 
 	return 0;
 }
@@ -832,7 +846,7 @@ static const struct net_device_ops ieee80211_dataif_8023_ops = {
 
 };
 
-static bool ieee80211_iftype_supports_encap_offload(enum nl80211_iftype iftype)
+static bool ieee80211_iftype_supports_hdr_offload(enum nl80211_iftype iftype)
 {
 	switch (iftype) {
 	/* P2P GO and client are mapped to AP/STATION types */
@@ -852,7 +866,7 @@ static bool ieee80211_set_sdata_offload_flags(struct ieee80211_sub_if_data *sdat
 	flags = sdata->vif.offload_flags;
 
 	if (ieee80211_hw_check(&local->hw, SUPPORTS_TX_ENCAP_OFFLOAD) &&
-	    ieee80211_iftype_supports_encap_offload(sdata->vif.type)) {
+	    ieee80211_iftype_supports_hdr_offload(sdata->vif.type)) {
 		flags |= IEEE80211_OFFLOAD_ENCAP_ENABLED;
 
 		if (!ieee80211_hw_check(&local->hw, SUPPORTS_TX_FRAG) &&
@@ -865,10 +879,21 @@ static bool ieee80211_set_sdata_offload_flags(struct ieee80211_sub_if_data *sdat
 		flags &= ~IEEE80211_OFFLOAD_ENCAP_ENABLED;
 	}
 
+	if (ieee80211_hw_check(&local->hw, SUPPORTS_RX_DECAP_OFFLOAD) &&
+	    ieee80211_iftype_supports_hdr_offload(sdata->vif.type)) {
+		flags |= IEEE80211_OFFLOAD_DECAP_ENABLED;
+
+		if (local->monitors)
+			flags &= ~IEEE80211_OFFLOAD_DECAP_ENABLED;
+	} else {
+		flags &= ~IEEE80211_OFFLOAD_DECAP_ENABLED;
+	}
+
 	if (sdata->vif.offload_flags == flags)
 		return false;
 
 	sdata->vif.offload_flags = flags;
+	ieee80211_check_fast_rx_iface(sdata);
 	return true;
 }
 
@@ -886,7 +911,7 @@ static void ieee80211_set_vif_encap_ops(struct ieee80211_sub_if_data *sdata)
 	}
 
 	if (!ieee80211_hw_check(&local->hw, SUPPORTS_TX_ENCAP_OFFLOAD) ||
-	    !ieee80211_iftype_supports_encap_offload(bss->vif.type))
+	    !ieee80211_iftype_supports_hdr_offload(bss->vif.type))
 		return;
 
 	enabled = bss->vif.offload_flags & IEEE80211_OFFLOAD_ENCAP_ENABLED;
@@ -1412,6 +1437,7 @@ static void ieee80211_iface_work(struct work_struct *work)
 	while ((skb = skb_dequeue(&sdata->skb_queue))) {
 		struct ieee80211_mgmt *mgmt = (void *)skb->data;
 
+		kcov_remote_start_common(skb_get_kcov_handle(skb));
 		if (ieee80211_is_action(mgmt->frame_control) &&
 		    mgmt->u.action.category == WLAN_CATEGORY_BACK) {
 			int len = skb->len;
@@ -1521,6 +1547,7 @@ static void ieee80211_iface_work(struct work_struct *work)
 		}
 
 		kfree_skb(skb);
+		kcov_remote_stop();
 	}
 
 	/* then other type-dependent work */
@@ -1719,6 +1746,10 @@ static int ieee80211_runtime_change_iftype(struct ieee80211_sub_if_data *sdata,
 	if (ret)
 		return ret;
 
+	ieee80211_stop_vif_queues(local, sdata,
+				  IEEE80211_QUEUE_STOP_REASON_IFTYPE_CHANGE);
+	synchronize_net();
+
 	ieee80211_do_stop(sdata, false);
 
 	ieee80211_teardown_sdata(sdata);
@@ -1741,6 +1772,8 @@ static int ieee80211_runtime_change_iftype(struct ieee80211_sub_if_data *sdata,
 	err = ieee80211_do_open(&sdata->wdev, false);
 	WARN(err, "type change: do_open returned %d", err);
 
+	ieee80211_wake_vif_queues(local, sdata,
+				  IEEE80211_QUEUE_STOP_REASON_IFTYPE_CHANGE);
 	return ret;
 }
 
@@ -2074,11 +2107,8 @@ struct vif_params *params)
 		ndev->max_mtu = local->hw.max_mtu;
 #endif
 
-		ret = register_netdevice(ndev);
+		ret = cfg80211_register_netdevice(ndev);
 		if (ret) {
-#if LINUX_VERSION_IS_LESS(4,12,0)
-			ieee80211_if_free(ndev);
-#endif
 			free_netdev(ndev);
 			return ret;
 		}
@@ -2107,10 +2137,9 @@ void ieee80211_if_remove(struct ieee80211_sub_if_data *sdata)
 
 	synchronize_rcu();
 
-	if (sdata->dev) {
-		unregister_netdevice(sdata->dev);
-	} else {
-		cfg80211_unregister_wdev(&sdata->wdev);
+	cfg80211_unregister_wdev(&sdata->wdev);
+
+	if (!sdata->dev) {
 		ieee80211_teardown_sdata(sdata);
 		kfree(sdata);
 	}
@@ -2159,13 +2188,20 @@ void ieee80211_remove_interfaces(struct ieee80211_local *local)
 			list_add(&sdata->list, &wdev_list);
 	}
 	mutex_unlock(&local->iflist_mtx);
+
 	unregister_netdevice_many(&unreg_list);
 
+#if CFG80211_VERSION >= KERNEL_VERSION(5,12,0)
+	wiphy_lock(local->hw.wiphy);
+#endif
 	list_for_each_entry_safe(sdata, tmp, &wdev_list, list) {
 		list_del(&sdata->list);
 		cfg80211_unregister_wdev(&sdata->wdev);
 		kfree(sdata);
 	}
+#if CFG80211_VERSION >= KERNEL_VERSION(5,12,0)
+	wiphy_unlock(local->hw.wiphy);
+#endif
 }
 
 static int netdev_notify(struct notifier_block *nb,

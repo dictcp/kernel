@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause */
 /*
- * Copyright (C) 2012-2014, 2018-2020 Intel Corporation
+ * Copyright (C) 2012-2014, 2018-2021 Intel Corporation
  * Copyright (C) 2017 Intel Deutschland GmbH
  */
 #ifndef __iwl_fw_api_rs_h__
@@ -183,6 +183,16 @@ struct iwl_tlc_update_notif {
 	__le32 amsdu_size;
 	__le32 amsdu_enabled;
 } __packed; /* TLC_MNG_UPDATE_NTFY_API_S_VER_2 */
+
+#ifdef CPTCFG_IWLWIFI_DHC
+/**
+ * enum iwl_tlc_debug_types - debug options
+ */
+enum iwl_tlc_debug_types {
+	/* @IWL_TLC_DEBUG_FIXED_RATE: set fixed rate for rate scaling */
+	IWL_TLC_DEBUG_FIXED_RATE,
+}; /* TLC_MNG_DEBUG_TYPES_API_E */
+#endif /* CPTCFG_IWLWIFI_DHC */
 
 /*
  * These serve as indexes into
@@ -372,12 +382,9 @@ enum {
 #define RATE_MCS_ANT_POS		14
 #define RATE_MCS_ANT_A_MSK		(1 << RATE_MCS_ANT_POS)
 #define RATE_MCS_ANT_B_MSK		(2 << RATE_MCS_ANT_POS)
-#define RATE_MCS_ANT_C_MSK		(4 << RATE_MCS_ANT_POS)
 #define RATE_MCS_ANT_AB_MSK		(RATE_MCS_ANT_A_MSK | \
 					 RATE_MCS_ANT_B_MSK)
-#define RATE_MCS_ANT_ABC_MSK		(RATE_MCS_ANT_AB_MSK | \
-					 RATE_MCS_ANT_C_MSK)
-#define RATE_MCS_ANT_MSK		RATE_MCS_ANT_ABC_MSK
+#define RATE_MCS_ANT_MSK		RATE_MCS_ANT_AB_MSK
 
 /* Bit 17: (0) SS, (1) SS*2 */
 #define RATE_MCS_STBC_POS		17

@@ -445,6 +445,7 @@ static int ieee80211_add_key(struct wiphy *wiphy, struct net_device *dev,
 	case WLAN_CIPHER_SUITE_WEP104:
 		if (WARN_ON_ONCE(fips_enabled))
 			return -EINVAL;
+		break;
 	case WLAN_CIPHER_SUITE_CCMP:
 	case WLAN_CIPHER_SUITE_CCMP_256:
 	case WLAN_CIPHER_SUITE_AES_CMAC:
@@ -1140,7 +1141,7 @@ static int ieee80211_start_ap(struct wiphy *wiphy, struct net_device *dev,
 				      IEEE80211_HE_OPERATION_RTS_THRESHOLD_MASK);
 		changed |= BSS_CHANGED_HE_OBSS_PD;
 
-#if CFG80211_VERSION >= KERNEL_VERSION(5,7,0)
+#if CFG80211_VERSION >= KERNEL_VERSION(5,4,0)
 		if (params->he_bss_color.enabled)
 #endif
 			changed |= BSS_CHANGED_HE_BSS_COLOR;
@@ -1193,7 +1194,7 @@ static int ieee80211_start_ap(struct wiphy *wiphy, struct net_device *dev,
 	sdata->vif.bss_conf.twt_responder = params->twt_responder;
 	sdata->vif.bss_conf.he_obss_pd = params->he_obss_pd;
 #endif
-#if CFG80211_VERSION >= KERNEL_VERSION(5,7,0)
+#if CFG80211_VERSION >= KERNEL_VERSION(5,4,0)
 	sdata->vif.bss_conf.he_bss_color = params->he_bss_color;
 #endif
 #if CFG80211_VERSION >= KERNEL_VERSION(5,10,0)
@@ -1881,8 +1882,10 @@ static int ieee80211_change_station(struct wiphy *wiphy,
 		}
 
 		if (sta->sdata->vif.type == NL80211_IFTYPE_AP_VLAN &&
-		    sta->sdata->u.vlan.sta)
+		    sta->sdata->u.vlan.sta) {
+			ieee80211_clear_fast_rx(sta);
 			RCU_INIT_POINTER(sta->sdata->u.vlan.sta, NULL);
+		}
 
 		if (test_sta_flag(sta, WLAN_STA_AUTHORIZED))
 			ieee80211_vif_dec_num_mcast(sta->sdata);
@@ -2499,7 +2502,16 @@ static int ieee80211_suspend(struct wiphy *wiphy,
 
 static int ieee80211_resume(struct wiphy *wiphy)
 {
+#if CFG80211_VERSION < KERNEL_VERSION(5,12,0)
+	int ret = __ieee80211_resume(wiphy_priv(wiphy));
+
+	if (ret)
+		cfg80211_shutdown_all_interfaces(wiphy);
+
+	return ret;
+#else
 	return __ieee80211_resume(wiphy_priv(wiphy));
+#endif
 }
 #else
 #define ieee80211_suspend NULL
@@ -3060,14 +3072,14 @@ static int ieee80211_set_bitrate_mask(struct wiphy *wiphy,
 			continue;
 
 		for (j = 0; j < IEEE80211_HT_MCS_MASK_LEN; j++) {
-			if (~sdata->rc_rateidx_mcs_mask[i][j]) {
+			if (sdata->rc_rateidx_mcs_mask[i][j] != 0xff) {
 				sdata->rc_has_mcs_mask[i] = true;
 				break;
 			}
 		}
 
 		for (j = 0; j < NL80211_VHT_NSS_MAX; j++) {
-			if (~sdata->rc_rateidx_vht_mcs_mask[i][j]) {
+			if (sdata->rc_rateidx_vht_mcs_mask[i][j] != 0xffff) {
 				sdata->rc_has_vht_mcs_mask[i] = true;
 				break;
 			}
@@ -3419,6 +3431,7 @@ static int ieee80211_set_csa_beacon(struct ieee80211_sub_if_data *sdata,
 			if (cfg80211_get_chandef_type(&params->chandef) !=
 			    cfg80211_get_chandef_type(&sdata->u.ibss.chandef))
 				return -EINVAL;
+			break;
 		case NL80211_CHAN_WIDTH_5:
 		case NL80211_CHAN_WIDTH_10:
 		case NL80211_CHAN_WIDTH_20_NOHT:
@@ -4235,6 +4248,19 @@ static int ieee80211_reset_tid_config(struct wiphy *wiphy,
 }
 #endif
 
+#if CFG80211_VERSION >= KERNEL_VERSION(5,11,0)
+static int ieee80211_set_sar_specs(struct wiphy *wiphy,
+				   struct cfg80211_sar_specs *sar)
+{
+	struct ieee80211_local *local = wiphy_priv(wiphy);
+
+	if (!local->ops->set_sar_specs)
+		return -EOPNOTSUPP;
+
+	return local->ops->set_sar_specs(&local->hw, sar);
+}
+#endif
+
 #if CFG80211_VERSION < KERNEL_VERSION(3,14,0)
 static int _wrap_mgmt_tx(struct wiphy *wiphy, struct wireless_dev *wdev,
 			 struct ieee80211_channel *chan, bool offchan,
@@ -4426,5 +4452,8 @@ const struct cfg80211_ops mac80211_config_ops = {
 #endif
 #if CFG80211_VERSION >= KERNEL_VERSION(5,7,0)
 	.reset_tid_config = ieee80211_reset_tid_config,
+#endif
+#if CFG80211_VERSION >= KERNEL_VERSION(5,11,0)
+	.set_sar_specs = ieee80211_set_sar_specs,
 #endif
 };

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause
 /*
  * Copyright (C) 2015-2017 Intel Deutschland GmbH
- * Copyright (C) 2018-2020 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  */
 #include <linux/etherdevice.h>
 #include <linux/math64.h>
@@ -348,6 +348,7 @@ iwl_mvm_ftm_target_chandef_v2(struct iwl_mvm *mvm,
 			      u8 *ctrl_ch_position)
 {
 	u32 freq = peer->chandef.chan->center_freq;
+	u8 cmd_ver;
 
 	*channel = ieee80211_frequency_to_channel(freq);
 
@@ -368,6 +369,17 @@ iwl_mvm_ftm_target_chandef_v2(struct iwl_mvm *mvm,
 		*format_bw = IWL_LOCATION_FRAME_FORMAT_VHT;
 		*format_bw |= IWL_LOCATION_BW_80MHZ << LOCATION_BW_POS;
 		break;
+	case NL80211_CHAN_WIDTH_160:
+		cmd_ver = iwl_fw_lookup_cmd_ver(mvm->fw, LOCATION_GROUP,
+						TOF_RANGE_REQ_CMD,
+						IWL_FW_CMD_VER_UNKNOWN);
+
+		if (cmd_ver >= 13) {
+			*format_bw = IWL_LOCATION_FRAME_FORMAT_HE;
+			*format_bw |= IWL_LOCATION_BW_160MHZ << LOCATION_BW_POS;
+			break;
+		}
+		fallthrough;
 	default:
 		IWL_ERR(mvm, "Unsupported BW in FTM request (%d)\n",
 			peer->chandef.width);
@@ -809,11 +821,38 @@ iwl_mvm_ftm_set_ndp_params(struct iwl_mvm *mvm,
 		IWL_MVM_FTM_I2R_MAX_STS;
 
 	target->r2i_ndp_params = IWL_MVM_FTM_R2I_MAX_REP |
-		(i2r_max_sts << IWL_LOCATION_MAX_STS_POS);
+		(IWL_MVM_FTM_R2I_MAX_STS << IWL_LOCATION_MAX_STS_POS);
 	target->i2r_ndp_params = IWL_MVM_FTM_I2R_MAX_REP |
-		(IWL_MVM_FTM_I2R_MAX_STS << IWL_LOCATION_MAX_STS_POS);
+		(i2r_max_sts << IWL_LOCATION_MAX_STS_POS);
 	target->r2i_max_total_ltf = IWL_MVM_FTM_R2I_MAX_TOTAL_LTF;
 	target->i2r_max_total_ltf = IWL_MVM_FTM_I2R_MAX_TOTAL_LTF;
+}
+
+static int
+iwl_mvm_ftm_put_target_v8(struct iwl_mvm *mvm, struct ieee80211_vif *vif,
+			  struct cfg80211_pmsr_request_peer *peer,
+			  struct iwl_tof_range_req_ap_entry_v8 *target)
+{
+	u32 flags;
+	int ret = iwl_mvm_ftm_put_target_v7(mvm, vif, peer, (void *)target);
+
+	if (ret)
+		return ret;
+
+	iwl_mvm_ftm_set_ndp_params(mvm, target);
+
+	/*
+	 * If secure LTF is turned off, replace the flag with PMF only
+	 */
+	flags = le32_to_cpu(target->initiator_ap_flags);
+	if ((flags & IWL_INITIATOR_AP_FLAGS_SECURED) &&
+	    !IWL_MVM_FTM_INITIATOR_SECURE_LTF) {
+		flags &= ~IWL_INITIATOR_AP_FLAGS_SECURED;
+		flags |= IWL_INITIATOR_AP_FLAGS_PMF;
+		target->initiator_ap_flags = cpu_to_le32(flags);
+	}
+
+	return 0;
 }
 
 static int iwl_mvm_ftm_start_v12(struct iwl_mvm *mvm,
@@ -835,24 +874,58 @@ static int iwl_mvm_ftm_start_v12(struct iwl_mvm *mvm,
 	for (i = 0; i < cmd.num_of_ap; i++) {
 		struct cfg80211_pmsr_request_peer *peer = &req->peers[i];
 		struct iwl_tof_range_req_ap_entry_v8 *target = &cmd.ap[i];
-		u32 flags;
 
-		err = iwl_mvm_ftm_put_target_v7(mvm, vif, peer, (void *)target);
+		err = iwl_mvm_ftm_put_target_v8(mvm, vif, peer, target);
+		if (err)
+			return err;
+	}
+
+	return iwl_mvm_ftm_send_cmd(mvm, &hcmd);
+}
+
+static int iwl_mvm_ftm_start_v13(struct iwl_mvm *mvm,
+				 struct ieee80211_vif *vif,
+				 struct cfg80211_pmsr_request *req)
+{
+	struct iwl_tof_range_req_cmd_v13 cmd;
+	struct iwl_host_cmd hcmd = {
+		.id = iwl_cmd_id(TOF_RANGE_REQ_CMD, LOCATION_GROUP, 0),
+		.dataflags[0] = IWL_HCMD_DFL_DUP,
+		.data[0] = &cmd,
+		.len[0] = sizeof(cmd),
+	};
+	u8 i;
+	int err;
+
+	iwl_mvm_ftm_cmd_common(mvm, vif, (void *)&cmd, req);
+
+	for (i = 0; i < cmd.num_of_ap; i++) {
+		struct cfg80211_pmsr_request_peer *peer = &req->peers[i];
+		struct iwl_tof_range_req_ap_entry_v9 *target = &cmd.ap[i];
+
+		err = iwl_mvm_ftm_put_target_v8(mvm, vif, peer, (void *)target);
 		if (err)
 			return err;
 
-		iwl_mvm_ftm_set_ndp_params(mvm, target);
+		if (ftm_trigger_based(peer) || ftm_non_trigger_based(peer))
+			target->bss_color = ftm_bss_color(peer);
 
-		/*
-		 * If secure LTF is turned off, replace the flag with PMF only
-		 */
-		flags = le32_to_cpu(target->initiator_ap_flags);
-		if ((flags & IWL_INITIATOR_AP_FLAGS_SECURED) &&
-		    !IWL_MVM_FTM_INITIATOR_SECURE_LTF) {
-			flags &= ~IWL_INITIATOR_AP_FLAGS_SECURED;
-			flags |= IWL_INITIATOR_AP_FLAGS_PMF;
-			target->initiator_ap_flags = cpu_to_le32(flags);
+		if (ftm_non_trigger_based(peer)) {
+			target->min_time_between_msr =
+				cpu_to_le16(IWL_MVM_FTM_NON_TB_MIN_TIME_BETWEEN_MSR);
+			target->burst_period =
+				cpu_to_le16(IWL_MVM_FTM_NON_TB_MAX_TIME_BETWEEN_MSR);
+		} else {
+			target->min_time_between_msr = cpu_to_le16(0);
 		}
+
+		target->band =
+			iwl_mvm_phy_band_from_nl80211(peer->chandef.chan->band);
+
+#ifdef CPTCFG_IWLWIFI_SUPPORT_DEBUG_OVERRIDES
+		if (IWL_MVM_FTM_LMR_FEEDBACK_TERMINATE)
+			FTM_PUT_FLAG(TERMINATE_ON_LMR_FEEDBACK);
+#endif
 	}
 
 	return iwl_mvm_ftm_send_cmd(mvm, &hcmd);
@@ -876,6 +949,9 @@ int iwl_mvm_ftm_start(struct iwl_mvm *mvm, struct ieee80211_vif *vif,
 						   IWL_FW_CMD_VER_UNKNOWN);
 
 		switch (cmd_ver) {
+		case 13:
+			err = iwl_mvm_ftm_start_v13(mvm, vif, req);
+			break;
 		case 12:
 			err = iwl_mvm_ftm_start_v12(mvm, vif, req);
 			break;
@@ -945,7 +1021,8 @@ static u64 iwl_mvm_ftm_get_host_time(struct iwl_mvm *mvm, __le32 fw_gp2_ts)
 	u32 curr_gp2, diff;
 	u64 now_from_boot_ns;
 
-	iwl_mvm_get_sync_time(mvm, &curr_gp2, &now_from_boot_ns);
+	iwl_mvm_get_sync_time(mvm, CLOCK_BOOTTIME, &curr_gp2,
+			      &now_from_boot_ns, NULL);
 
 	if (curr_gp2 >= gp2_ts)
 		diff = curr_gp2 - gp2_ts;

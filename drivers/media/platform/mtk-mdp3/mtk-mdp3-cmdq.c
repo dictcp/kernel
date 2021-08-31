@@ -377,13 +377,10 @@ static void mdp_auto_release_work(struct work_struct *work)
 				auto_release_work);
 	mdp = cb_param->mdp;
 
-	if (cb_param->comps && cb_param->num_comps) {
-		int i;
-
-		for (i = 0; i < cb_param->num_comps; i++)
-			mdp_comp_clock_off(&mdp->pdev->dev,
-					   &cb_param->comps[i]);
-	}
+	mdp_comp_clocks_off(&mdp->pdev->dev, cb_param->comps,
+			    cb_param->num_comps);
+	mdp_comp_clock_off(&mdp->pdev->dev, &mdp->mm_mutex);
+	pm_runtime_put_sync(&mdp->pdev->dev);
 
 	kfree(cb_param->comps);
 	kfree(cb_param);
@@ -426,13 +423,27 @@ static void mdp_handle_cmdq_callback(struct cmdq_cb_data data)
 
 	cmdq_pkt_destroy(cb_param->pkt);
 	INIT_WORK(&cb_param->auto_release_work, mdp_auto_release_work);
-	queue_work(mdp->clock_wq, &cb_param->auto_release_work);
+	if (!queue_work(mdp->clock_wq, &cb_param->auto_release_work)) {
+		mdp_err("%s:queue_work fail!\n", __func__);
+		mdp_comp_clocks_off(&mdp->pdev->dev, cb_param->comps,
+				    cb_param->num_comps);
+		mdp_comp_clock_off(&mdp->pdev->dev, &mdp->mm_mutex);
+		pm_runtime_put_sync(&mdp->pdev->dev);
+
+		kfree(cb_param->comps);
+		kfree(cb_param);
+
+		atomic_dec(&mdp->job_count);
+		wake_up(&mdp->callback_wq);
+	}
 }
 
 int mdp_cmdq_send(struct mdp_dev *mdp, struct mdp_cmdq_param *param)
 {
 	struct mdp_cmd cmd;
 	struct mdp_path path;
+	struct mdp_cmdq_cb_param *cb_param = NULL;
+	struct mdp_comp *comps = NULL;
 	int i, ret;
 
 	if (atomic_read(&mdp->suspended))
@@ -465,24 +476,20 @@ int mdp_cmdq_send(struct mdp_dev *mdp, struct mdp_cmdq_param *param)
 	ret = mdp_path_ctx_init(mdp, &path);
 	if (ret) {
 		pr_info("%s mdp_path_ctx_init error\n", __func__);
-		return ret;
+		goto err_destory_pkt;
 	}
-
-    // TODO: engine conflict dispatch
-	pm_runtime_get_sync(&mdp->pdev->dev);
-	mdp_comp_clock_on(&mdp->pdev->dev, &mdp->mm_mutex);
-
-	for (i = 0; i < param->config->num_components; i++)
-		mdp_comp_clock_on(&mdp->pdev->dev, path.comps[i].comp);
 
 	ret = mdp_path_config(mdp, &cmd, &path);
 	if (ret) {
-		atomic_dec(&mdp->job_count);
-		wake_up(&mdp->callback_wq);
-		return ret;
+		pr_info("%s mdp_path_config error\n", __func__);
+		goto err_destory_pkt;
 	}
 
 	if (param->wait) {
+	    pm_runtime_get_sync(&mdp->pdev->dev);
+	    mdp_comp_clock_on(&mdp->pdev->dev, &mdp->mm_mutex);
+		for (i = 0; i < param->config->num_components; i++)
+			mdp_comp_clock_on(&mdp->pdev->dev, path.comps[i].comp);
 		ret = cmdq_pkt_flush(cmd.pkt);
 #ifdef MDP_DEBUG
         if (ret) {
@@ -496,23 +503,20 @@ int mdp_cmdq_send(struct mdp_dev *mdp, struct mdp_cmdq_param *param)
 			if (param->mdp_ctx)
 				mdp_m2m_job_finish(param->mdp_ctx);
 		}
-		cmdq_pkt_destroy(cmd.pkt);
-
-		atomic_dec(&mdp->job_count);
-		wake_up(&mdp->callback_wq);
+		goto err_clock_off;
 	} else {
-		struct mdp_cmdq_cb_param *cb_param;
-		struct mdp_comp *comps;
-
 		cb_param = kzalloc(sizeof(*cb_param), GFP_KERNEL);
-		if (!cb_param)
-			return -ENOMEM;
+		if (!cb_param) {
+			ret = -ENOMEM;
+			goto err_destory_pkt;
+		}
+
 		comps = kcalloc(param->config->num_components, sizeof(*comps),
 				GFP_KERNEL);
 		if (!comps) {
-			kfree(cb_param);
 			mdp_err("%s:comps alloc fail!\n", __func__);
-			return -ENOMEM;
+			ret = -ENOMEM;
+			goto err_destory_pkt;
 		}
 
 		for (i = 0; i < param->config->num_components; i++)
@@ -526,15 +530,42 @@ int mdp_cmdq_send(struct mdp_dev *mdp, struct mdp_cmdq_param *param)
 		cb_param->num_comps = param->config->num_components;
 		cb_param->mdp_ctx = param->mdp_ctx;
 
+		pm_runtime_get_sync(&mdp->pdev->dev);
+		mdp_comp_clock_on(&mdp->pdev->dev, &mdp->mm_mutex);
+		mdp_comp_clocks_on(&mdp->pdev->dev, cb_param->comps,
+				   cb_param->num_comps);
+
 		ret = cmdq_pkt_flush_async(cmd.pkt,
 					   mdp_handle_cmdq_callback,
 					   (void *)cb_param);
 		if (ret) {
 			mdp_err("%s:cmdq_pkt_flush_async fail!\n", __func__);
-			kfree(cb_param);
-			kfree(comps);
+			goto err_clock_off;
 		}
 	}
+	return 0;
+
+err_clock_off:
+	if (param->wait) {
+		for (i = 0; i < param->config->num_components; i++)
+			mdp_comp_clock_off(&mdp->pdev->dev, path.comps[i].comp);
+		mdp_comp_clock_off(&mdp->pdev->dev, &mdp->mm_mutex);
+	} else {
+		mdp_comp_clocks_off(&mdp->pdev->dev, cb_param->comps,
+					    cb_param->num_comps);
+		mdp_comp_clock_off(&mdp->pdev->dev, &mdp->mm_mutex);
+	}
+	pm_runtime_put_sync(&mdp->pdev->dev);
+err_destory_pkt:
+	cmdq_pkt_destroy(cmd.pkt);
+	atomic_dec(&mdp->job_count);
+	if (param->wait)
+		wake_up(&mdp->callback_wq);
+	if (comps)
+		kfree(comps);
+	if (cb_param)
+		kfree(cb_param);
+
 	return ret;
 }
 

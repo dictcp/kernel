@@ -96,6 +96,10 @@
 #define MT_WF_MIB_BASE(_band)		((_band) ? 0xa4800 : 0x24800)
 #define MT_WF_MIB(_band, ofs)		(MT_WF_MIB_BASE(_band) + (ofs))
 
+#define MT_MIB_SCR1(_band)		MT_WF_MIB(_band, 0x004)
+#define MT_MIB_TXDUR_EN			BIT(8)
+#define MT_MIB_RXDUR_EN			BIT(9)
+
 #define MT_MIB_SDR3(_band)		MT_WF_MIB(_band, 0x698)
 #define MT_MIB_SDR3_FCS_ERR_MASK	GENMASK(31, 16)
 
@@ -108,9 +112,9 @@
 #define MT_MIB_SDR34(_band)		MT_WF_MIB(_band, 0x090)
 #define MT_MIB_MU_BF_TX_CNT		GENMASK(15, 0)
 
-#define MT_MIB_SDR36(_band)		MT_WF_MIB(_band, 0x098)
+#define MT_MIB_SDR36(_band)		MT_WF_MIB(_band, 0x054)
 #define MT_MIB_SDR36_TXTIME_MASK	GENMASK(23, 0)
-#define MT_MIB_SDR37(_band)		MT_WF_MIB(_band, 0x09c)
+#define MT_MIB_SDR37(_band)		MT_WF_MIB(_band, 0x058)
 #define MT_MIB_SDR37_RXTIME_MASK	GENMASK(23, 0)
 
 #define MT_MIB_DR8(_band)		MT_WF_MIB(_band, 0x0c0)
@@ -251,13 +255,16 @@
 #define MT_WFDMA0_BUSY_ENA_TX_FIFO1	BIT(1)
 #define MT_WFDMA0_BUSY_ENA_RX_FIFO	BIT(2)
 
-#define MT_MCU_CMD                     MT_WFDMA0(0x1f0)
-#define MT_MCU_CMD_STOP_DMA_FW_RELOAD  BIT(1)
-#define MT_MCU_CMD_STOP_DMA            BIT(2)
-#define MT_MCU_CMD_RESET_DONE          BIT(3)
-#define MT_MCU_CMD_RECOVERY_DONE       BIT(4)
-#define MT_MCU_CMD_NORMAL_STATE	       BIT(5)
-#define MT_MCU_CMD_ERROR_MASK          GENMASK(5, 1)
+#define MT_MCU_CMD			MT_WFDMA0(0x1f0)
+#define MT_MCU_CMD_WAKE_RX_PCIE		BIT(0)
+#define MT_MCU_CMD_STOP_DMA_FW_RELOAD	BIT(1)
+#define MT_MCU_CMD_STOP_DMA		BIT(2)
+#define MT_MCU_CMD_RESET_DONE		BIT(3)
+#define MT_MCU_CMD_RECOVERY_DONE	BIT(4)
+#define MT_MCU_CMD_NORMAL_STATE		BIT(5)
+#define MT_MCU_CMD_ERROR_MASK		GENMASK(5, 1)
+
+#define MT_MCU2HOST_SW_INT_ENA		MT_WFDMA0(0x1f4)
 
 #define MT_WFDMA0_HOST_INT_STA		MT_WFDMA0(0x200)
 #define HOST_RX_DONE_INT_STS0		BIT(0)	/* Rx mcu */
