@@ -344,6 +344,10 @@ struct kvm_mmu_page {
 
 	/* Number of writes since the last time traversal visited this page.  */
 	atomic_t write_flooding_count;
+
+	atomic_t ref_count;
+	struct rcu_head rcu_head;
+	struct list_head mmu_page_list;
 };
 
 struct kvm_pio_request {
@@ -391,8 +395,6 @@ struct kvm_mmu {
 	int (*sync_page)(struct kvm_vcpu *vcpu,
 			 struct kvm_mmu_page *sp);
 	void (*invlpg)(struct kvm_vcpu *vcpu, gva_t gva, hpa_t root_hpa);
-	void (*update_pte)(struct kvm_vcpu *vcpu, struct kvm_mmu_page *sp,
-			   u64 *spte, const void *pte);
 	hpa_t root_hpa;
 	gpa_t root_cr3;
 	union kvm_mmu_role mmu_role;
@@ -756,6 +758,16 @@ struct kvm_vcpu_arch {
 
 	u64 msr_kvm_poll_control;
 
+#ifdef CONFIG_KVM_HETEROGENEOUS_RT
+	struct {
+		bool enabled;
+		bool may_boost;
+		int msr_val;
+		int boost;
+		struct gfn_to_hva_cache data;
+	} preempt_count;
+#endif
+
 	/*
 	 * Indicate whether the access faults on its page table in guest
 	 * which is set when fix page fault and used to detect unhandeable
@@ -890,6 +902,11 @@ struct kvm_arch {
 	bool pause_in_guest;
 	bool cstate_in_guest;
 
+#ifdef CONFIG_KVM_VIRT_SUSPEND_TIMING
+	u64 msr_suspend_time;
+	struct gfn_to_hva_cache suspend_time;
+#endif /* KVM_VIRT_SUSPEND_TIMING */
+
 	unsigned long irq_sources_bitmap;
 	s64 kvmclock_offset;
 	raw_spinlock_t tsc_write_lock;
@@ -939,12 +956,14 @@ struct kvm_arch {
 
 	struct kvm_pmu_event_filter *pmu_event_filter;
 	struct task_struct *nx_lpage_recovery_thread;
+
+	spinlock_t mmu_page_list_lock;
+	struct list_head mmu_page_list;
 };
 
 struct kvm_vm_stat {
 	ulong mmu_shadow_zapped;
 	ulong mmu_pte_write;
-	ulong mmu_pte_updated;
 	ulong mmu_pde_zapped;
 	ulong mmu_flooded;
 	ulong mmu_recycled;

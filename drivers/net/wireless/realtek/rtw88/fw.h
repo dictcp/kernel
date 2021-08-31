@@ -16,7 +16,6 @@
 
 #define FIFO_PAGE_SIZE_SHIFT		12
 #define FIFO_PAGE_SIZE			4096
-#define RSVD_PAGE_START_ADDR		0x780
 #define FIFO_DUMP_ADDR			0x8000
 
 #define DLFW_PAGE_SIZE_SHIFT_LEGACY	12
@@ -31,6 +30,8 @@
 #define BCN_FILTER_CONNECTED		2
 #define BCN_FILTER_NOTIFY_BEACON_LOSS	3
 
+#define SCAN_NOTIFY_TIMEOUT  msecs_to_jiffies(10)
+
 enum rtw_c2h_cmd_id {
 	C2H_CCX_TX_RPT = 0x03,
 	C2H_BT_INFO = 0x09,
@@ -40,6 +41,8 @@ enum rtw_c2h_cmd_id {
 	C2H_WLAN_INFO = 0x27,
 	C2H_WLAN_RFON = 0x32,
 	C2H_BCN_FILTER_NOTIFY = 0x36,
+	C2H_ADAPTIVITY = 0x37,
+	C2H_SCAN_RESULT = 0x38,
 	C2H_HW_FEATURE_DUMP = 0xfd,
 	C2H_HALMAC = 0xff,
 };
@@ -52,6 +55,15 @@ struct rtw_c2h_cmd {
 	u8 id;
 	u8 seq;
 	u8 payload[0];
+} __packed;
+
+struct rtw_c2h_adaptivity {
+	u8 density;
+	u8 igi;
+	u8 l2h_th_init;
+	u8 l2h;
+	u8 h2l;
+	u8 option;
 } __packed;
 
 enum rtw_rsvd_packet_type {
@@ -87,6 +99,8 @@ enum rtw_fw_feature {
 	FW_FEATURE_LCLK = BIT(2),
 	FW_FEATURE_PG = BIT(3),
 	FW_FEATURE_BCN_FILTER = BIT(5),
+	FW_FEATURE_NOTIFY_SCAN = BIT(6),
+	FW_FEATURE_ADAPTIVITY = BIT(7),
 	FW_FEATURE_MAX = BIT(31),
 };
 
@@ -96,7 +110,7 @@ enum rtw_beacon_filter_offload_mode {
 	BCN_FILTER_OFFLOAD_MODE_2,
 	BCN_FILTER_OFFLOAD_MODE_3,
 
-	BCN_FILTER_OFFLOAD_MODE_DEFAULT = BCN_FILTER_OFFLOAD_MODE_1,
+	BCN_FILTER_OFFLOAD_MODE_DEFAULT = BCN_FILTER_OFFLOAD_MODE_0,
 };
 
 struct rtw_coex_info_req {
@@ -370,6 +384,8 @@ static inline void rtw_h2c_pkt_set_header(u8 *h2c_pkt, u8 sub_id)
 #define H2C_CMD_BCN_FILTER_OFFLOAD_P0	0x56
 #define H2C_CMD_BCN_FILTER_OFFLOAD_P1	0x57
 #define H2C_CMD_WL_PHY_INFO		0x58
+#define H2C_CMD_SCAN			0x59
+#define H2C_CMD_ADAPTIVITY		0x5A
 
 #define H2C_CMD_COEX_TDMA_TYPE		0x60
 #define H2C_CMD_QUERY_BT_INFO		0x61
@@ -419,6 +435,20 @@ static inline void rtw_h2c_pkt_set_header(u8 *h2c_pkt, u8 sub_id)
 	le32p_replace_bits((__le32 *)(h2c_pkt) + 0x01, value, GENMASK(3, 0))
 #define SET_BCN_FILTER_OFFLOAD_P1_BCN_INTERVAL(h2c_pkt, value)		       \
 	le32p_replace_bits((__le32 *)(h2c_pkt) + 0x01, value, GENMASK(13, 4))
+
+#define SET_SCAN_START(h2c_pkt, value)					       \
+	le32p_replace_bits((__le32 *)(h2c_pkt) + 0x00, value, BIT(8))
+
+#define SET_ADAPTIVITY_MODE(h2c_pkt, value)				       \
+	le32p_replace_bits((__le32 *)(h2c_pkt) + 0x00, value, GENMASK(11, 8))
+#define SET_ADAPTIVITY_OPTION(h2c_pkt, value)				       \
+	le32p_replace_bits((__le32 *)(h2c_pkt) + 0x00, value, GENMASK(15, 12))
+#define SET_ADAPTIVITY_IGI(h2c_pkt, value)				       \
+	le32p_replace_bits((__le32 *)(h2c_pkt) + 0x00, value, GENMASK(23, 16))
+#define SET_ADAPTIVITY_L2H(h2c_pkt, value)				       \
+	le32p_replace_bits((__le32 *)(h2c_pkt) + 0x00, value, GENMASK(31, 24))
+#define SET_ADAPTIVITY_DENSITY(h2c_pkt, value)				       \
+	le32p_replace_bits((__le32 *)(h2c_pkt) + 0x01, value, GENMASK(7, 0))
 
 #define SET_PWR_MODE_SET_MODE(h2c_pkt, value)                                  \
 	le32p_replace_bits((__le32 *)(h2c_pkt) + 0x00, value, GENMASK(14, 8))
@@ -567,6 +597,21 @@ static inline void rtw_h2c_pkt_set_header(u8 *h2c_pkt, u8 sub_id)
 #define SET_NLO_LOC_NLO_INFO(h2c_pkt, value)                                   \
 	le32p_replace_bits((__le32 *)(h2c_pkt) + 0x00, value, GENMASK(23, 16))
 
+#define GET_FW_DUMP_LEN(_header)					\
+	le32_get_bits(*((__le32 *)(_header) + 0x00), GENMASK(15, 0))
+#define GET_FW_DUMP_SEQ(_header)					\
+	le32_get_bits(*((__le32 *)(_header) + 0x00), GENMASK(22, 16))
+#define GET_FW_DUMP_MORE(_header)					\
+	le32_get_bits(*((__le32 *)(_header) + 0x00), BIT(23))
+#define GET_FW_DUMP_VERSION(_header)					\
+	le32_get_bits(*((__le32 *)(_header) + 0x00), GENMASK(31, 24))
+#define GET_FW_DUMP_TLV_TYPE(_header)					\
+	le32_get_bits(*((__le32 *)(_header) + 0x01), GENMASK(15, 0))
+#define GET_FW_DUMP_TLV_LEN(_header)					\
+	le32_get_bits(*((__le32 *)(_header) + 0x01), GENMASK(31, 16))
+#define GET_FW_DUMP_TLV_VAL(_header)					\
+	le32_get_bits(*((__le32 *)(_header) + 0x02), GENMASK(31, 0))
+
 #define RFK_SET_INFORM_START(h2c_pkt, value)				\
 	le32p_replace_bits((__le32 *)(h2c_pkt) + 0x00, value, BIT(8))
 
@@ -576,6 +621,12 @@ static inline struct rtw_c2h_cmd *get_c2h_from_skb(struct sk_buff *skb)
 
 	pkt_offset = *((u32 *)skb->cb);
 	return (struct rtw_c2h_cmd *)(skb->data + pkt_offset);
+}
+
+static inline bool rtw_fw_feature_check(struct rtw_fw_state *fw,
+					enum rtw_fw_feature feature)
+{
+	return !!(fw->feature & feature);
 }
 
 void rtw_fw_c2h_cmd_rx_irqsafe(struct rtw_dev *rtwdev, u32 pkt_offset,
@@ -631,5 +682,9 @@ void rtw_fw_update_pkt_probe_req(struct rtw_dev *rtwdev,
 void rtw_fw_channel_switch(struct rtw_dev *rtwdev, bool enable);
 void rtw_fw_h2c_cmd_dbg(struct rtw_dev *rtwdev, u8 *h2c);
 void rtw_fw_c2h_cmd_isr(struct rtw_dev *rtwdev);
+int rtw_fw_dump_fifo(struct rtw_dev *rtwdev, u8 fifo_sel, u32 addr, u32 size,
+		     u32 *buffer);
+void rtw_fw_scan_notify(struct rtw_dev *rtwdev, bool start);
+void rtw_fw_adaptivity(struct rtw_dev *rtwdev);
 
 #endif

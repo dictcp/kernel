@@ -88,6 +88,7 @@ static const struct iwl_hcmd_names iwl_xvt_long_cmd_names[] = {
 	HCMD_NAME(GET_SET_PHY_DB_CMD),
 	HCMD_NAME(TX_ANT_CONFIGURATION_CMD),
 	HCMD_NAME(REPLY_SF_CFG_CMD),
+	HCMD_NAME(DEBUG_HOST_COMMAND),
 };
 
 /* Please keep this array *SORTED* by hex value.
@@ -555,20 +556,20 @@ static void iwl_xvt_rx_dispatch(struct iwl_op_mode *op_mode,
 	iwl_notification_wait_notify(&xvt->notif_wait, pkt);
 	IWL_DEBUG_INFO(xvt, "rx dispatch got notification\n");
 
-	switch (pkt->hdr.cmd) {
-	case TX_CMD:
+	switch (WIDE_ID(pkt->hdr.group_id, pkt->hdr.cmd)) {
+	case WIDE_ID(LEGACY_GROUP, TX_CMD):
 		iwl_xvt_rx_tx_cmd_handler(xvt, pkt);
 		break;
-	case BA_NOTIF:
+	case WIDE_ID(LEGACY_GROUP, BA_NOTIF):
 		iwl_xvt_rx_ba_notif(xvt, pkt);
 		break;
-	case REPLY_RX_MPDU_CMD:
+	case WIDE_ID(LEGACY_GROUP, REPLY_RX_MPDU_CMD):
 		iwl_xvt_reorder(xvt, pkt);
 		break;
-	case TXPATH_FLUSH:
+	case WIDE_ID(LONG_GROUP, TXPATH_FLUSH):
 		iwl_xvt_txpath_flush(xvt, pkt);
 		break;
-	case FRAME_RELEASE:
+	case WIDE_ID(LEGACY_GROUP, FRAME_RELEASE):
 		iwl_xvt_rx_frame_release(xvt, pkt);
 	}
 
@@ -638,7 +639,7 @@ static void iwl_xvt_nic_config(struct iwl_op_mode *op_mode)
 				       ~APMG_PS_CTRL_EARLY_PWR_OFF_RESET_DIS);
 }
 
-static void iwl_xvt_nic_error(struct iwl_op_mode *op_mode)
+static void iwl_xvt_nic_error(struct iwl_op_mode *op_mode, bool sync)
 {
 	struct iwl_xvt *xvt = IWL_OP_MODE_GET_XVT(op_mode);
 	void *p_table;
@@ -687,7 +688,7 @@ static void iwl_xvt_nic_error(struct iwl_op_mode *op_mode)
 		kfree(p_table_umac);
 	}
 
-	iwl_fw_error_collect(&xvt->fwrt);
+	iwl_fw_error_collect(&xvt->fwrt, sync);
 }
 
 static bool iwl_xvt_set_hw_rfkill_state(struct iwl_op_mode *op_mode, bool state)
@@ -913,7 +914,7 @@ int iwl_xvt_sar_select_profile(struct iwl_xvt *xvt, int prof_a, int prof_b)
 	/* all structs have the same common part, add it */
 	len += sizeof(cmd.common);
 
-	if (iwl_sar_select_profile(&xvt->fwrt, per_chain, ACPI_SAR_NUM_TABLES,
+	if (iwl_sar_select_profile(&xvt->fwrt, per_chain, IWL_NUM_CHAIN_TABLES,
 				   n_subbands, prof_a, prof_b))
 		return -ENOENT;
 

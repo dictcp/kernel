@@ -628,11 +628,15 @@ struct btrtl_device_info *btrtl_initialize(struct hci_dev *hdev,
 		}
 	}
 
-	/* RTL8822CE supports the Microsoft vendor extension and uses 0xFCF0
-	 * for VsMsftOpCode.
+	/* The following chips supports the Microsoft vendor extension,
+	 * therefore set the corresponding VsMsftOpCode.
 	 */
-	if (lmp_subver == RTL_ROM_LMP_8822B)
+	switch (lmp_subver) {
+	case RTL_ROM_LMP_8822B:
+	case RTL_ROM_LMP_8852A:
 		hci_set_msft_opcode(hdev, 0xFCF0);
+		break;
+	}
 
 	return btrtl_dev;
 
@@ -673,17 +677,8 @@ int btrtl_download_firmware(struct hci_dev *hdev,
 }
 EXPORT_SYMBOL_GPL(btrtl_download_firmware);
 
-int btrtl_setup_realtek(struct hci_dev *hdev)
+void btrtl_set_quirks(struct hci_dev *hdev, struct btrtl_device_info *btrtl_dev)
 {
-	struct btrtl_device_info *btrtl_dev;
-	int ret;
-
-	btrtl_dev = btrtl_initialize(hdev, NULL);
-	if (IS_ERR(btrtl_dev))
-		return PTR_ERR(btrtl_dev);
-
-	ret = btrtl_download_firmware(hdev, btrtl_dev);
-
 	/* Enable controller to do both LE scan and BR/EDR inquiry
 	 * simultaneously.
 	 */
@@ -704,6 +699,21 @@ int btrtl_setup_realtek(struct hci_dev *hdev)
 		rtl_dev_dbg(hdev, "WBS supported not enabled.");
 		break;
 	}
+}
+EXPORT_SYMBOL_GPL(btrtl_set_quirks);
+
+int btrtl_setup_realtek(struct hci_dev *hdev)
+{
+	struct btrtl_device_info *btrtl_dev;
+	int ret;
+
+	btrtl_dev = btrtl_initialize(hdev, NULL);
+	if (IS_ERR(btrtl_dev))
+		return PTR_ERR(btrtl_dev);
+
+	ret = btrtl_download_firmware(hdev, btrtl_dev);
+
+	btrtl_set_quirks(hdev, btrtl_dev);
 
 	btrtl_free(btrtl_dev);
 	return ret;

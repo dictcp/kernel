@@ -148,13 +148,12 @@ static int rtw_ops_add_interface(struct ieee80211_hw *hw,
 {
 	struct rtw_dev *rtwdev = hw->priv;
 	struct rtw_vif *rtwvif = (struct rtw_vif *)vif->drv_priv;
-	struct rtw_fw_state *fw = &rtwdev->fw;
 	enum rtw_net_type net_type;
 	u32 config = 0;
 	u8 port = 0;
 	u8 bcn_ctrl = 0;
 
-	if (fw->feature & FW_FEATURE_BCN_FILTER)
+	if (rtw_fw_feature_check(&rtwdev->fw, FW_FEATURE_BCN_FILTER))
 		vif->driver_flags |= IEEE80211_VIF_BEACON_FILTER |
 				     IEEE80211_VIF_SUPPORTS_CQM_RSSI;
 	rtwvif->port = port;
@@ -584,9 +583,12 @@ static void rtw_ops_sw_scan_start(struct ieee80211_hw *hw,
 	rtw_vif_port_config(rtwdev, rtwvif, config);
 
 	rtw_coex_scan_notify(rtwdev, COEX_SCAN_START);
+	rtw_core_fw_scan_notify(rtwdev, true);
 
 	set_bit(RTW_FLAG_DIG_DISABLE, rtwdev->flags);
 	set_bit(RTW_FLAG_SCANNING, rtwdev->flags);
+
+	rtw_restore_no_ir_flag(rtwdev);
 
 	mutex_unlock(&rtwdev->mutex);
 }
@@ -602,6 +604,8 @@ static void rtw_ops_sw_scan_complete(struct ieee80211_hw *hw,
 
 	clear_bit(RTW_FLAG_SCANNING, rtwdev->flags);
 	clear_bit(RTW_FLAG_DIG_DISABLE, rtwdev->flags);
+
+	rtw_core_fw_scan_notify(rtwdev, false);
 
 	ether_addr_copy(rtwvif->mac_addr, vif->addr);
 	config |= PORT_SET_MAC_ADDR;

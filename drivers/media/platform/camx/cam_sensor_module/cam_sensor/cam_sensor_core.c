@@ -327,8 +327,8 @@ static int32_t cam_sensor_i2c_modes_util(
 	return rc;
 }
 
-int32_t cam_sensor_update_i2c_info(struct cam_cmd_i2c_info *i2c_info,
-	struct cam_sensor_ctrl_t *s_ctrl)
+static int32_t cam_sensor_update_i2c_info(struct cam_cmd_i2c_info *i2c_info,
+					  struct cam_sensor_ctrl_t *s_ctrl)
 {
 	int32_t rc = 0;
 	struct cam_sensor_cci_client   *cci_client = NULL;
@@ -355,8 +355,8 @@ int32_t cam_sensor_update_i2c_info(struct cam_cmd_i2c_info *i2c_info,
 	return rc;
 }
 
-int32_t cam_sensor_update_slave_info(struct cam_cmd_probe *probe_info,
-	struct cam_sensor_ctrl_t *s_ctrl)
+static int32_t cam_sensor_update_slave_info(struct cam_cmd_probe *probe_info,
+					    struct cam_sensor_ctrl_t *s_ctrl)
 {
 	int32_t rc = 0;
 
@@ -381,9 +381,11 @@ int32_t cam_sensor_update_slave_info(struct cam_cmd_probe *probe_info,
 	return rc;
 }
 
-int32_t cam_handle_cmd_buffers_for_probe(void *cmd_buf,
-	struct cam_sensor_ctrl_t *s_ctrl,
-	int32_t cmd_buf_num, uint32_t cmd_buf_length, size_t remain_len)
+static int32_t
+cam_handle_cmd_buffers_for_probe(void *cmd_buf,
+				 struct cam_sensor_ctrl_t *s_ctrl,
+				 int32_t cmd_buf_num, uint32_t cmd_buf_length,
+				 size_t remain_len)
 {
 	int32_t rc = 0;
 
@@ -433,7 +435,8 @@ int32_t cam_handle_cmd_buffers_for_probe(void *cmd_buf,
 	return rc;
 }
 
-int32_t cam_handle_mem_ptr(uint64_t handle, struct cam_sensor_ctrl_t *s_ctrl)
+static int32_t cam_handle_mem_ptr(uint64_t handle,
+				  struct cam_sensor_ctrl_t *s_ctrl)
 {
 	int rc = 0, i;
 	uint32_t *cmd_buf;
@@ -539,8 +542,8 @@ rel_pkt_buf:
 	return rc;
 }
 
-void cam_sensor_query_cap(struct cam_sensor_ctrl_t *s_ctrl,
-	struct  cam_sensor_query_cap *query_cap)
+static void cam_sensor_query_cap(struct cam_sensor_ctrl_t *s_ctrl,
+				 struct  cam_sensor_query_cap *query_cap)
 {
 	query_cap->pos_roll = s_ctrl->sensordata->pos_roll;
 	query_cap->pos_pitch = s_ctrl->sensordata->pos_pitch;
@@ -617,7 +620,7 @@ void cam_sensor_shutdown(struct cam_sensor_ctrl_t *s_ctrl)
 	s_ctrl->sensor_state = CAM_SENSOR_INIT;
 }
 
-int cam_sensor_match_id(struct cam_sensor_ctrl_t *s_ctrl)
+static int cam_sensor_match_id(struct cam_sensor_ctrl_t *s_ctrl)
 {
 	int rc = 0;
 	uint32_t chipid = 0;
@@ -717,6 +720,11 @@ int32_t cam_sensor_driver_cmd(struct cam_sensor_ctrl_t *s_ctrl,
 			goto free_power_settings;
 		}
 
+		if (s_ctrl->sensor_state != CAM_SENSOR_ACQUIRE) {
+			s_ctrl->is_dummy_probe = TRUE;
+			goto dummy_probe;
+		}
+
 		/* Power up and probe sensor */
 		rc = cam_sensor_power_up(s_ctrl);
 		if (rc < 0) {
@@ -732,21 +740,24 @@ int32_t cam_sensor_driver_cmd(struct cam_sensor_ctrl_t *s_ctrl,
 			goto free_power_settings;
 		}
 
-		CAM_INFO(CAM_SENSOR,
-			"Probe done, slot:%d, slave_addr:0x%x, sensor_id:0x%x",
-			s_ctrl->soc_info.index,
-			s_ctrl->sensordata->slave_info.sensor_slave_addr,
-			s_ctrl->sensordata->slave_info.sensor_id);
-
 		rc = cam_sensor_power_down(s_ctrl);
 		if (rc < 0) {
 			CAM_ERR(CAM_SENSOR, "fail in Sensor Power Down");
 			goto free_power_settings;
 		}
+
+dummy_probe:
+
 		/*
 		 * Set probe succeeded flag to 1 so that no other camera shall
 		 * probed on this slot
 		 */
+		CAM_DBG(CAM_SENSOR,
+			"Dummy probe done, slot:%d, slave_addr:0x%x, sensor_id:0x%x",
+			s_ctrl->soc_info.index,
+			s_ctrl->sensordata->slave_info.sensor_slave_addr,
+			s_ctrl->sensordata->slave_info.sensor_id);
+
 		s_ctrl->is_probe_succeed = 1;
 		s_ctrl->sensor_state = CAM_SENSOR_INIT;
 	}
@@ -803,7 +814,22 @@ int32_t cam_sensor_driver_cmd(struct cam_sensor_ctrl_t *s_ctrl,
 			CAM_ERR(CAM_SENSOR, "Sensor Power up failed");
 			goto release_mutex;
 		}
-
+		if (s_ctrl->is_dummy_probe) {
+			/* Match sensor ID */
+			rc = cam_sensor_match_id(s_ctrl);
+			if (rc < 0) {
+				CAM_ERR(CAM_SENSOR,
+					"Probe failed for %s slot:%d, slave_addr:0x%x, sensor_id:0x%x",
+					s_ctrl->device_name,
+					s_ctrl->soc_info.index,
+					s_ctrl->sensordata->slave_info.sensor_slave_addr,
+					s_ctrl->sensordata->slave_info.sensor_id);
+				cam_sensor_power_down(s_ctrl);
+				goto release_mutex;
+			}
+			s_ctrl->is_dummy_probe = FALSE;
+			CAM_DBG(CAM_SENSOR, "Defer probe success");
+		}
 		s_ctrl->sensor_state = CAM_SENSOR_ACQUIRE;
 		s_ctrl->last_flush_req = 0;
 		CAM_DBG(CAM_SENSOR,
@@ -1324,7 +1350,7 @@ int32_t cam_sensor_flush_request(struct cam_req_mgr_flush_request *flush_req)
 	}
 
 	mutex_lock(&(s_ctrl->cam_sensor_mutex));
-	if (s_ctrl->sensor_state != CAM_SENSOR_START ||
+	if (s_ctrl->sensor_state != CAM_SENSOR_START &&
 		s_ctrl->sensor_state != CAM_SENSOR_CONFIG) {
 		mutex_unlock(&(s_ctrl->cam_sensor_mutex));
 		return rc;
