@@ -436,7 +436,7 @@ static void genpd_restore_performance_state(struct device *dev,
 int dev_pm_genpd_set_performance_state(struct device *dev, unsigned int state)
 {
 	struct generic_pm_domain *genpd;
-	int ret;
+	int ret = 0;
 
 	genpd = dev_to_genpd_safe(dev);
 	if (!genpd)
@@ -447,7 +447,13 @@ int dev_pm_genpd_set_performance_state(struct device *dev, unsigned int state)
 		return -EINVAL;
 
 	genpd_lock(genpd);
-	ret = genpd_set_performance_state(dev, state);
+	if (pm_runtime_suspended(dev)) {
+		dev_gpd_data(dev)->rpm_pstate = state;
+	} else {
+		ret = genpd_set_performance_state(dev, state);
+		if (!ret)
+			dev_gpd_data(dev)->rpm_pstate = 0;
+	}
 	genpd_unlock(genpd);
 
 	return ret;
@@ -2660,7 +2666,7 @@ static int __genpd_dev_pm_attach(struct device *dev, struct device *base_dev,
 
 	/* Set the default performance state */
 	pstate = of_get_required_opp_performance_state(dev->of_node, index);
-	if (pstate < 0 && pstate != -ENODEV) {
+	if (pstate < 0 && pstate != -ENODEV && pstate != -EOPNOTSUPP) {
 		ret = pstate;
 		goto err;
 	} else if (pstate > 0) {

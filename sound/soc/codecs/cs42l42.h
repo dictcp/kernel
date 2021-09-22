@@ -228,6 +228,60 @@
 #define CS42L42_PLUG_HEADPHONE		2
 #define CS42L42_PLUG_INVALID		3
 
+#define CS42L42_HSDET_SW_COMP1		((0 << CS42L42_SW_GNDHS_HS4_SHIFT) | \
+					 (1 << CS42L42_SW_GNDHS_HS3_SHIFT) | \
+					 (1 << CS42L42_SW_HSB_HS4_SHIFT) | \
+					 (0 << CS42L42_SW_HSB_HS3_SHIFT) | \
+					 (0 << CS42L42_SW_HSB_FILT_HS4_SHIFT) | \
+					 (1 << CS42L42_SW_HSB_FILT_HS3_SHIFT) | \
+					 (0 << CS42L42_SW_REF_HS4_SHIFT) | \
+					 (1 << CS42L42_SW_REF_HS3_SHIFT))
+#define CS42L42_HSDET_SW_COMP2		((1 << CS42L42_SW_GNDHS_HS4_SHIFT) | \
+					 (0 << CS42L42_SW_GNDHS_HS3_SHIFT) | \
+					 (0 << CS42L42_SW_HSB_HS4_SHIFT) | \
+					 (1 << CS42L42_SW_HSB_HS3_SHIFT) | \
+					 (1 << CS42L42_SW_HSB_FILT_HS4_SHIFT) | \
+					 (0 << CS42L42_SW_HSB_FILT_HS3_SHIFT) | \
+					 (1 << CS42L42_SW_REF_HS4_SHIFT) | \
+					 (0 << CS42L42_SW_REF_HS3_SHIFT))
+#define CS42L42_HSDET_SW_TYPE1		((0 << CS42L42_SW_GNDHS_HS4_SHIFT) | \
+					 (1 << CS42L42_SW_GNDHS_HS3_SHIFT) | \
+					 (1 << CS42L42_SW_HSB_HS4_SHIFT) | \
+					 (0 << CS42L42_SW_HSB_HS3_SHIFT) | \
+					 (0 << CS42L42_SW_HSB_FILT_HS4_SHIFT) | \
+					 (1 << CS42L42_SW_HSB_FILT_HS3_SHIFT) | \
+					 (0 << CS42L42_SW_REF_HS4_SHIFT) | \
+					 (1 << CS42L42_SW_REF_HS3_SHIFT))
+#define CS42L42_HSDET_SW_TYPE2		((1 << CS42L42_SW_GNDHS_HS4_SHIFT) | \
+					 (0 << CS42L42_SW_GNDHS_HS3_SHIFT) | \
+					 (0 << CS42L42_SW_HSB_HS4_SHIFT) | \
+					 (1 << CS42L42_SW_HSB_HS3_SHIFT) | \
+					 (1 << CS42L42_SW_HSB_FILT_HS4_SHIFT) | \
+					 (0 << CS42L42_SW_HSB_FILT_HS3_SHIFT) | \
+					 (1 << CS42L42_SW_REF_HS4_SHIFT) | \
+					 (0 << CS42L42_SW_REF_HS3_SHIFT))
+#define CS42L42_HSDET_SW_TYPE3		((1 << CS42L42_SW_GNDHS_HS4_SHIFT) | \
+					 (1 << CS42L42_SW_GNDHS_HS3_SHIFT) | \
+					 (0 << CS42L42_SW_HSB_HS4_SHIFT) | \
+					 (0 << CS42L42_SW_HSB_HS3_SHIFT) | \
+					 (1 << CS42L42_SW_HSB_FILT_HS4_SHIFT) | \
+					 (1 << CS42L42_SW_HSB_FILT_HS3_SHIFT) | \
+					 (1 << CS42L42_SW_REF_HS4_SHIFT) | \
+					 (1 << CS42L42_SW_REF_HS3_SHIFT))
+#define CS42L42_HSDET_SW_TYPE4		((0 << CS42L42_SW_GNDHS_HS4_SHIFT) | \
+					 (1 << CS42L42_SW_GNDHS_HS3_SHIFT) | \
+					 (1 << CS42L42_SW_HSB_HS4_SHIFT) | \
+					 (0 << CS42L42_SW_HSB_HS3_SHIFT) | \
+					 (0 << CS42L42_SW_HSB_FILT_HS4_SHIFT) | \
+					 (1 << CS42L42_SW_HSB_FILT_HS3_SHIFT) | \
+					 (0 << CS42L42_SW_REF_HS4_SHIFT) | \
+					 (1 << CS42L42_SW_REF_HS3_SHIFT))
+
+#define CS42L42_HSDET_COMP_TYPE1	1
+#define CS42L42_HSDET_COMP_TYPE2	2
+#define CS42L42_HSDET_COMP_TYPE3	0
+#define CS42L42_HSDET_COMP_TYPE4	3
+
 #define CS42L42_HS_CLAMP_DISABLE	(CS42L42_PAGE_11 + 0x29)
 #define CS42L42_HS_CLAMP_DISABLE_SHIFT	0
 #define CS42L42_HS_CLAMP_DISABLE_MASK	(1 << CS42L42_HS_CLAMP_DISABLE_SHIFT)
@@ -777,6 +831,7 @@ struct  cs42l42_private {
 	struct gpio_desc *reset_gpio;
 	struct completion pdn_done;
 	struct snd_soc_jack *jack;
+	int pll_config;
 	int bclk;
 	u32 sclk;
 	u32 srate;
@@ -793,7 +848,6 @@ struct  cs42l42_private {
 	u8 hs_bias_ramp_time;
 	u8 hs_bias_sense_en;
 	u8 stream_use;
-	u8 pll_lock;
 };
 
 #endif /* __CS42L42_H__ */
